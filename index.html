@@ -1,1 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>SOC CVRF Dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; margin: 16px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  .grid { display: grid; gap: 8px; grid-template-columns: 1fr; }
+  .inputs { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(220px, 1fr)); align-items: center; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top: 6px; }
+  input[type="file"], input[type="search"], select, button { font: inherit; padding: 6px 8px; }
+  input[type="search"] { width: 320px; }
+  .badges { display: inline-flex; gap: 6px; align-items: center; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+  .CRITICAL { background:#8B0000; color:#fff; }
+  .HIGH { background:#C0392B; color:#fff; }
+  .MEDIUM { background:#F39C12; color:#111; }
+  .LOW { background:#2ECC71; color:#111; }
+  .UNKNOWN { background:#95A5A6; color:#111; }
+  .table-wrap { margin-top: 10px; overflow:auto; border: 1px solid #ddd; border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; white-space: nowrap; }
+  th { position: sticky; top: 0; background: #fafafa; cursor: pointer; }
+  tr:hover { background: #f6faff; }
+  .footer { margin-top: 8px; color: #666; font-size: 12px; display:flex; gap:8px; align-items:center; }
+  .muted { color:#777; }
+  .hidden { display:none !important; }
+  .warn { color:#C0392B; font-weight:600; }
+  @media (max-width: 720px) {
+    .inputs { grid-template-columns: 1fr; }
+    input[type="search"] { width: 100%; }
+  }
+</style>
+</head>
+<body>
+  <h1>SOC CVRF Dashboard</h1>
 
+  <div class="grid">
+    <div class="inputs">
+      <label>
+        <div><strong>CVRF JSON</strong></div>
+        <input id="cvrf" type="file" accept=".json,application/json" />
+      </label>
+      <label>
+        <div><strong>Enrichment CSV (optional)</strong></div>
+        <input id="enrich" type="file" accept=".csv,text/csv" />
+        <div class="muted" style="margin-top:4px">
+          Columns accepted: <code>CVE-ID, KEV Added, KEV Due, Internet Exposed, Forensic Triage Required</code>
+        </div>
+      </label>
+    </div>
+
+    <div class="controls">
+      <button id="loadBtn">Load</button>
+      <button id="exportCsvBtn" disabled>Export CSV</button>
+      <button id="exportXlsBtn" disabled>Export Excel (.xls)</button>
+      <button id="exportJsonBtn" disabled>Export JSON</button>
+      <button id="copyBtn" disabled>Copy rows</button>
+      <span id="msg" class="muted"></span>
+    </div>
+
+    <div class="controls">
+      <input id="q" type="search" placeholder="Type to filter (CVE, Description, SSVC, Impact…)" />
+      <label>Severity:
+        <select id="sev">
+          <option value="">All</option>
+          <option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
+        </select>
+      </label>
+      <label>Automatable:
+        <select id="auto">
+          <option value="">All</option>
+          <option>Yes</option><option>No</option><option>Automatable</option><option>Unknown</option>
+        </select>
+      </label>
+      <label>Internet Exposed:
+        <select id="iex">
+          <option value="">All</option>
+          <option>Yes</option><option>No</option><option>Varies</option><option>Unknown</option>
+        </select>
+      </label>
+      <label>Forensic Triage:
+        <select id="tri">
+          <option value="">All</option>
+          <option>Yes</option><option>No</option><option>Unknown</option>
+        </select>
+      </label>
+      <label><input id="kevOnly" type="checkbox" /> KEV Added only</label>
+    </div>
+
+    <div class="badges">
+      <span class="badge CRITICAL">CRITICAL</span>
+      <span class="badge HIGH">HIGH</span>
+      <span class="badge MEDIUM">MEDIUM</span>
+      <span class="badge LOW">LOW</span>
+      <span class="badge UNKNOWN">UNKNOWN</span>
+    </div>
+
+    <div class="table-wrap">
+      <table id="grid">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="footer">
+      <span id="stats"></span>
+      <span id="hint" class="muted">Tip: Click column headers to sort. Nothing is uploaded; all processing is in-browser.</span>
+    </div>
+  </div>
+
+<script>
+/* ----------------------------
+   SOC CVRF Dashboard (Static)
+   ---------------------------- */
+
+/* Columns shown and exported */
+const COLS = [
+  'CVE-ID','Description','SSVC','CVSS','Severity','Impact','Automatable',
+  'Internet Exposed','Forensic Triage Required','KEV Added','KEV Due','Due','Added'
+];
+
+let rows = [];         // all loaded rows
+let filtered = [];     // filtered view
+let sortCol = 'Added'; // default sort
+let sortDir = -1;      // -1 desc, 1 asc
+
+/* UI refs */
+const $ = sel => document.querySelector(sel);
+const $gridHead = $('#grid thead');
+const $gridBody = $('#grid tbody');
+const $stats = $('#stats');
+const $msg = $('#msg');
+
+$('#loadBtn').addEventListener('click', handleLoad);
+$('#exportCsvBtn').addEventListener('click', () => downloadCSV(filtered, 'soc_table.csv'));
+$('#exportXlsBtn').addEventListener('click', () => downloadXLS(filtered, 'soc_table.xls'));
+$('#exportJsonBtn').addEventListener('click', () => downloadJSON(filtered, 'soc_table.json'));
+$('#copyBtn').addEventListener('click', () => copyRows(filtered));
+
+$('#q').addEventListener('input', applyFilters);
+$('#sev').addEventListener('change', applyFilters);
+$('#auto').addEventListener('change', applyFilters);
+$('#iex').addEventListener('change', applyFilters);
+$('#tri').addEventListener('change', applyFilters);
+$('#kevOnly').addEventListener('change', applyFilters);
+
+/* ---------- Helpers ---------- */
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+}
+
+function parseCSV(text) {
+  if (!text) return [];
+  // Basic RFC4180-ish parser (supports quoted fields)
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.length);
+  const out = [];
+  const parseLine = (line) => {
+    const cells = [];
+    let i = 0, cur = '', inQ = false;
+    while (i < line.length) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (line[i+1] === '"') { cur += '"'; i += 2; } else { inQ = false; i++; }
+        } else { cur += ch; i++; }
+      } else {
+        if (ch === '"') { inQ = true; i++; }
+        else if (ch === ',') { cells.push(cur); cur = ''; i++; }
+        else { cur += ch; i++; }
+      }
+    }
+    cells.push(cur);
+    return cells;
+  };
+  const header = parseLine(lines[0]).map(h => h.trim());
+  for (let li = 1; li < lines.length; li++) {
+    const vals = parseLine(lines[li]);
+    const rec = {};
+    header.forEach((h, idx) => rec[h] = (vals[idx] ?? '').trim());
+    out.push(rec);
+  }
+  return out;
+}
+
+function pickCVSS(scoreSets) {
+  if (!Array.isArray(scoreSets) || !scoreSets.length) return { base: null, ver: null, vec: null };
+  const ranked = scoreSets.map(it => {
+    const ver = (it.Version || it.version || '').trim();
+    let base = it.BaseScore ?? it.baseScore;
+    try { base = base == null ? null : parseFloat(base); } catch { base = null; }
+    const vec = it.Vector || it.vector || null;
+    const pri = ({'3.1':3,'3.0':2,'2.0':1}[ver]) || 0;
+    return { pri, score: base ?? 0, ver, base, vec };
+  }).sort((a,b)=> (b.pri - a.pri) || (b.score - a.score));
+  const top = ranked[0];
+  return { base: top.base, ver: top.ver, vec: top.vec };
+}
+
+function severityFromScore(score) {
+  if (score == null || isNaN(score)) return 'UNKNOWN';
+  if (score >= 9.0) return 'CRITICAL';
+  if (score >= 7.0) return 'HIGH';
+  if (score >= 4.0) return 'MEDIUM';
+  if (score >= 0.0) return 'LOW';
+  return 'UNKNOWN';
+}
+
+function firstText(...vals) {
+  for (const v of vals) if (typeof v === 'string' && v.trim()) return v.trim();
+  return '';
+}
+
+function extractSSVC(notes) {
+  for (const n of (notes || [])) {
+    const t = String(n.Title || '').toLowerCase();
+    if (t.includes('ssvc')) return firstText(n.Value, n.Text);
+  }
+  return '';
+}
+function extractImpact(notes, threats) {
+  for (const th of (threats || [])) {
+    const t = String(th.Type || '').toLowerCase();
+    if (t.includes('impact')) return firstText(th.Description, th.Text, th.Value);
+  }
+  for (const n of (notes || [])) {
+    const t = String(n.Title || '').toLowerCase();
+    if (t.includes('impact')) return firstText(n.Value, n.Text);
+  }
+  return '';
+}
+function extractAutomatable(threats) {
+  for (const th of (threats || [])) {
+    const t = String(th.Type || '').toLowerCase();
+    const val = [th.Description, th.Text, th.Value].filter(x=>x!=null).map(String).join(' ').toLowerCase();
+    if (t.includes('automatable') || val.includes('automatable')) {
+      if (val.includes('yes') || val.includes('true')) return 'Yes';
+      if (val.includes('no') || val.includes('false')) return 'No';
+      return 'Automatable';
+    }
+  }
+  return '';
+}
+
+function parseDateStr(s) {
+  if (!s) return '';
+  // Accept common formats; normalize to YYYY-MM-DD
+  const d = s.slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+}
+
+/* ---------- CVRF parsing ---------- */
+function parseCVRF(data, dueDays = 14) {
+  const vulns = Array.isArray(data?.Vulnerability) ? data.Vulnerability
+               : Array.isArray(data?.Document?.Vulnerability) ? data.Document.Vulnerability
+               : [];
+  const out = [];
+  for (const v of vulns) {
+    // CVE
+    const cveField = v.CVE;
+    const cve = Array.isArray(cveField) && cveField.length ? cveField[0]
+              : (typeof cveField === 'string' ? cveField : '');
+
+    // Description
+    const titleObj = v.Title || {};
+    let desc = typeof titleObj === 'object' ? titleObj.Value : '';
+    if (!desc) {
+      for (const n of (v.Notes || [])) {
+        const t = String(n.Title || '').toLowerCase();
+        if (t === 'summary' || t === 'description' || t === 'title') { desc = firstText(n.Value, n.Text); if (desc) break; }
+      }
+    }
+
+    // CVSS
+    const cvss = pickCVSS(v.CVSSScoreSets || []);
+    const cvssBase = cvss.base;
+    const severity = severityFromScore(cvssBase);
+
+    // Dates
+    const added = parseDateStr(v.ReleaseDate) || parseDateStr(v.DiscoveryDate);
+    let due = '';
+    if (dueDays && added) {
+      try { due = new Date(added); due.setDate(due.getDate()+dueDays); due = due.toISOString().slice(0,10); } catch {}
+    }
+
+    // SSVC / Impact / Automatability
+    const ssvc = extractSSVC(v.Notes || []);
+    const impact = extractImpact(v.Notes || [], v.Threats || []);
+    const autom = extractAutomatable(v.Threats || []);
+
+    out.push({
+      'CVE-ID': cve || '',
+      'Description': (desc || '').trim(),
+      'SSVC': ssvc || '',
+      'CVSS': (typeof cvssBase === 'number' ? cvssBase.toFixed(1) : ''),
+      'Severity': severity || 'UNKNOWN',
+      'Impact': impact || '',
+      'Automatable': autom || '',
+      'Internet Exposed': '',                 // enrichment
+      'Forensic Triage Required': '',         // enrichment
+      'KEV Added': '',                        // enrichment
+      'KEV Due': '',                          // enrichment
+      'Due': due || '',
+      'Added': added || ''
+    });
+  }
+  // Sort: Added desc, CVSS desc
+  out.sort((a,b)=> {
+    const ad = a.Added || '', bd = b.Added || '';
+    const as = parseFloat(a.CVSS || '-1'), bs = parseFloat(b.CVSS || '-1');
+    return (bd.localeCompare(ad)) || (bs - as);
+  });
+  return out;
+}
+
+/* ---------- Enrichment merge ---------- */
+function mergeEnrichment(baseRows, enrichRecords) {
+  if (!enrichRecords || !enrichRecords.length) return baseRows;
+  // Build map by CVE-ID
+  const map = new Map();
+  for (const r of enrichRecords) {
+    const cve = String(r['CVE-ID'] || r['CVE'] || r['CVE ID'] || r['cve_id'] || '').trim();
+    if (!cve) continue;
+    const rec = {
+      'Internet Exposed': String(r['Internet Exposed'] || r['Internet-Exposed'] || r['Internet Exposed?'] || '').trim(),
+      'Forensic Triage Required': String(r['Forensic Triage Required'] || r['Forensic Triage'] || '').trim(),
+      'KEV Added': String(r['KEV Added'] || r['KEV addition'] || r['kev_added'] || '').trim(),
+      'KEV Due':   String(r['KEV Due']   || r['Due Date']     || r['kev_due']   || '').trim(),
+    };
+    // normalize booleans to Yes/No
+    for (const k of ['Internet Exposed','Forensic Triage Required']) {
+      const v = rec[k].toLowerCase();
+      if (v === 'true') rec[k] = 'Yes';
+      else if (v === 'false') rec[k] = 'No';
+      else if (!rec[k]) rec[k] = '';
+    }
+    map.set(cve, rec);
+  }
+  for (const r of baseRows) {
+    const info = map.get(String(r['CVE-ID'] || '').trim());
+    if (info) Object.assign(r, info);
+  }
+  return baseRows;
+}
+
+/* ---------- UI rendering ---------- */
+
+function buildHeader() {
+  const tr = document.createElement('tr');
+  for (const c of COLS) {
+    const th = document.createElement('th');
+    th.textContent = c;
+    th.addEventListener('click', () => {
+      if (sortCol === c) sortDir *= -1; else { sortCol = c; sortDir = 1; }
+      render();
+    });
+    tr.appendChild(th);
+  }
+  $gridHead.innerHTML = '';
+  $gridHead.appendChild(tr);
+}
+
+function applyFilters() {
+  const s = $('#sev').value;
+  const a = $('#auto').value;
+  const iex = $('#iex').value;
+  const tri = $('#tri').value;
+  const kevOnly = $('#kevOnly').checked;
+  const q = ($('#q').value || '').toLowerCase();
+
+  filtered = rows.filter(r => {
+    const sev = r['Severity'] || '';
+    const sevOk = !s || (s==='UNKNOWN' ? (sev==='' || sev==='UNKNOWN') : sev===s);
+    const autoVal = (r['Automatable'] || '').toString();
+    const autoOk = !a || (a==='Unknown' ? (autoVal==='') : autoVal===a);
+    const ieVal = (r['Internet Exposed'] || '').toString();
+    const ieOk = !iex || (iex==='Unknown' ? (ieVal==='') : ieVal===iex);
+    const triVal = (r['Forensic Triage Required'] || '').toString();
+    const triOk = !tri || (tri==='Unknown' ? (triVal==='') : triVal===tri);
+    const kevVal = (r['KEV Added'] || '').toString().trim();
+    const kevOk = !kevOnly || kevVal !== '';
+    const hay = COLS.map(c => (r[c] || '').toString().toLowerCase()).join('\u0000');
+    const qOk = !q || hay.includes(q);
+    return sevOk && autoOk && ieOk && triOk && kevOk && qOk;
+  });
+  render();
+}
+
+function render() {
+  // sort
+  filtered.sort((x,y)=>{
+    const xv = (x[sortCol]||'').toString();
+    const yv = (y[sortCol]||'').toString();
+    if (sortCol==='CVSS') { return ((parseFloat(xv)||-1) - (parseFloat(yv)||-1)) * sortDir; }
+    return xv.localeCompare(yv) * sortDir;
+  });
+
+  // body
+  $gridBody.innerHTML = '';
+  for (const r of filtered) {
+    const tr = document.createElement('tr');
+    for (const c of COLS) {
+      const td = document.createElement('td');
+      const val = r[c] || '';
+      if (c === 'Severity') {
+        const b = document.createElement('span');
+        b.className = 'badge ' + (val || 'UNKNOWN');
+        b.textContent = val || 'UNKNOWN';
+        td.appendChild(b);
+      } else {
+        td.textContent = val;
+      }
+      tr.appendChild(td);
+    }
+    $gridBody.appendChild(tr);
+  }
+
+  // stats
+  $stats.textContent = `Showing ${filtered.length} of ${rows.length}`;
+  const disabled = filtered.length === 0;
+  $('#exportCsvBtn').disabled = disabled;
+  $('#exportXlsBtn').disabled = disabled;
+  $('#exportJsonBtn').disabled = disabled;
+  $('#copyBtn').disabled = disabled;
+}
+
+/* ---------- Export ---------- */
+
+function toCSV(data, cols = COLS) {
+  const esc = v => {
+    const s = (v == null ? '' : String(v));
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const lines = [];
+  lines.push(cols.join(','));
+  for (const r of data) lines.push(cols.map(c=>esc(r[c])).join(','));
+  return lines.join('\n');
+}
+
+function downloadCSV(data, filename) {
+  const csv = toCSV(data);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+}
+
+function downloadJSON(data, filename) {
+  const pretty = JSON.stringify(data, null, 2);
+  const blob = new Blob([pretty], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+}
+
+function downloadXLS(data, filename) {
+  // Excel-friendly HTML table (.xls). Most Excel versions open this cleanly.
+  const header = '<tr>' + COLS.map(c=>`<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
+  const rowsHtml = data.map(r => '<tr>' + COLS.map(c=>`<td>${escapeHtml(r[c] || '')}</td>`).join('') + '</tr>').join('');
+  const html =
+    `<!doctype html><html><head><meta charset="utf-8" />` +
+    `<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />` +
+    `</head><body><table>${header}${rowsHtml}</table></body></html>`;
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#039;');
+}
+
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+
+async function copyRows(data) {
+  const text = toCSV(data);
+  try {
+    await navigator.clipboard.writeText(text);
+    flash('Copied rows to clipboard');
+  } catch {
+    flash('Copy failed — your browser may block clipboard access', true);
+  }
+}
+
+function flash(msg, warn=false) {
+  $msg.textContent = msg;
+  $msg.classList.toggle('warn', !!warn);
+  setTimeout(()=>{ $msg.textContent=''; $msg.classList.remove('warn'); }, 3500);
+}
+
+/* ---------- Load flow ---------- */
+
+async function handleLoad() {
+  try {
+    const cvrfFile = $('#cvrf').files[0];
+    if (!cvrfFile) { flash('Please select a CVRF JSON file', true); return; }
+    const enrichFile = $('#enrich').files[0];
+
+    // Read files
+    const [jsonText, enrichText] = await Promise.all([readFileAsText(cvrfFile), readFileAsText(enrichFile)]);
+    // Parse JSON
+    let json;
+    try { json = JSON.parse(jsonText); } catch (e) { flash('Invalid CVRF JSON', true); return; }
+    // Build rows
+    rows = parseCVRF(json, 14);
+    // Enrichment (CSV only)
+    let enrichRecords = [];
+    if (enrichText) {
+      try { enrichRecords = parseCSV(enrichText); } catch { enrichRecords = []; }
+      rows = mergeEnrichment(rows, enrichRecords);
+    }
+
+    buildHeader();
+    filtered = rows.slice();
+    render();
+    flash('Loaded');
+  } catch (e) {
+    console.error(e);
+    flash('Load failed', true);
+  }
+}
+</script>
+</body>
+</html>
