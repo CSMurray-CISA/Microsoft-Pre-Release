@@ -6,30 +6,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; background:#111; color:#eee; }
-  h1 { font-size: 22px; margin-bottom: 12px; }
+  body { font-family: system-ui, sans-serif; margin:16px; background:#111; color:#eee; }
+  h1 { margin-bottom:12px; font-size:22px; }
 
-  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
-  input[type="file"], input[type="search"], select, button {
-    font: inherit; padding: 6px 8px; background:#222; color:#eee; border:1px solid #444; border-radius:4px;
+  .controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  input,select,button {
+    background:#222; color:#eee; border:1px solid #555; border-radius:4px;
+    padding:6px 8px; font:inherit;
   }
-  input[type="search"] { width: 320px; }
+  input[type="search"] { width:300px; }
+
+  .table-wrap { border:1px solid #333; border-radius:6px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; background:#000; color:#ddd; }
+  th,td { padding:8px; border-bottom:1px solid #333; white-space:nowrap; }
+  th { background:#222; position:sticky; top:0; cursor:pointer; }
+
+  tr:hover { background:#1b1b1b; }
 
   .badge { padding:2px 8px; border-radius:10px; font-size:12px; }
   .CRITICAL { background:#8B0000; color:#fff; }
-  .HIGH     { background:#C0392B; color:#fff; }
-  .MEDIUM   { background:#F39C12; color:#111; }
-  .LOW      { background:#2ECC71; color:#111; }
-  .UNKNOWN  { background:#95A5A6; color:#111; }
+  .HIGH { background:#C0392B; color:#fff; }
+  .MEDIUM { background:#F39C12; color:#111; }
+  .LOW { background:#2ECC71; color:#111; }
+  .UNKNOWN { background:#777; color:#000; }
 
-  .table-wrap { overflow:auto; border:1px solid #444; border-radius:6px; }
-  table { border-collapse:collapse; width:100%; font-size:13px; background:#000; color:#ddd; }
-  th,td { border-bottom:1px solid #333; padding:8px; text-align:left; white-space:nowrap; }
-  th { background:#222; position:sticky; top:0; cursor:pointer; color:#fff; }
-  tr:hover { background:#1a1a1a; }
-
-  #stats { margin-top:8px; font-size:12px; color:#ccc; }
+  #stats { margin-top:6px; font-size:12px; color:#ccc; }
 </style>
 </head>
 <body>
@@ -39,18 +40,21 @@
 <div class="controls">
   <input id="cvrf" type="file" accept=".json" />
   <button id="loadBtn">Load</button>
-  <input id="q" type="search" placeholder="Filter (CVE, Description…)" />
+
+  <input id="q" type="search" placeholder="Filter (CVE, Description...)" />
 
   <label>Severity:
     <select id="sev">
-      <option value="">All</option><option>CRITICAL</option>
-      <option>HIGH</option><option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
+      <option value="">All</option>
+      <option>CRITICAL</option><option>HIGH</option>
+      <option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
     </select>
   </label>
 
   <label>Automatable:
     <select id="auto">
-      <option value="">All</option><option>Yes</option><option>No</option><option>Automatable</option>
+      <option value="">All</option>
+      <option>Yes</option><option>No</option><option>Automatable</option>
     </select>
   </label>
 
@@ -68,92 +72,113 @@
 <div id="stats"></div>
 
 <script>
-/* -------- Columns we keep -------- */
+/****************************************************
+ * COLUMNS
+ ****************************************************/
 const COLS = [
-  'CVE-ID','Description','SSVC','CVSS','Severity',
-  'Impact','Automatable','Internet Exposed','Forensic Triage Required'
+  "CVE-ID", "Description", "SSVC", "CVSS", "Severity",
+  "Impact", "Automatable",
+  "Internet Exposed", "Forensic Triage Required"
 ];
 
 let rows = [];
 let filtered = [];
-let sortCol = 'CVSS';
+let sortCol = "CVSS";
 let sortDir = -1;
 
-const $ = sel => document.querySelector(sel);
+const $ = s => document.querySelector(s);
 
-/* ---------- File Reader ---------- */
+/****************************************************
+ * SAFE STRING NORMALIZER
+ ****************************************************/
+function safeStr(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  return JSON.stringify(v).trim();     // Handles objects, arrays, numbers
+}
+
+/****************************************************
+ * FILE READER
+ ****************************************************/
 function readFile(f) {
-  return new Promise((resolve,reject)=>{
+  return new Promise((res,rej)=>{
     const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
+    r.onload = () => res(r.result);
+    r.onerror = rej;
     r.readAsText(f);
   });
 }
 
-/* ---------- CVSS Picker ---------- */
+/****************************************************
+ * CVSS SELECTOR
+ ****************************************************/
 function pickCVSS(sets) {
-  if (!Array.isArray(sets) || !sets.length) return null;
-  const ranked = sets.map(it=>{
-    const ver = it.Version || it.version || '';
-    const base = parseFloat(it.BaseScore || it.baseScore || 'NaN');
-    const pri  = {'3.1':3,'3.0':2,'2.0':1}[ver] || 0;
-    return {pri, base:(isNaN(base)?null:base)};
-  }).sort((a,b)=> (b.pri - a.pri) || ((b.base||0) - (a.base||0)));
-  return ranked[0].base;
+  if (!Array.isArray(sets)) return null;
+  const ranked = sets.map(s=>{
+    const ver = safeStr(s.Version||s.version);
+    let base = parseFloat(s.BaseScore||s.baseScore);
+    if (isNaN(base)) base = null;
+    const pri = {"3.1":3,"3.0":2,"2.0":1}[ver] || 0;
+    return {pri, base};
+  }).sort((a,b)=> (b.pri - a.pri) || ((b.base??0) - (a.base??0)));
+  return ranked.length ? ranked[0].base : null;
 }
 
 function severityFromScore(n){
-  if(n==null||isNaN(n))return 'UNKNOWN';
-  if(n>=9.0)return 'CRITICAL';
-  if(n>=7.0)return 'HIGH';
-  if(n>=4.0)return 'MEDIUM';
-  if(n>=0.0)return 'LOW';
-  return 'UNKNOWN';
+  if(n==null||isNaN(n))return "UNKNOWN";
+  if(n>=9.0)return "CRITICAL";
+  if(n>=7.0)return "HIGH";
+  if(n>=4.0)return "MEDIUM";
+  if(n>=0.0)return "LOW";
+  return "UNKNOWN";
 }
 
 function firstText(...vals){
-  for(const v of vals) if(v && typeof v==='string' && v.trim()) return v.trim();
-  return '';
+  for(const v of vals){
+    const t = safeStr(v);
+    if(t.trim()) return t.trim();
+  }
+  return "";
 }
 
-/* ============================================================
-   FIXED SSVC / Impact / Automatable logic for CISA CVRF format
-   ============================================================ */
+/****************************************************
+ * MAIN PARSER — FULLY SANITIZED
+ ****************************************************/
 function extract(v){
-  const cve = Array.isArray(v.CVE) ? v.CVE[0] : v.CVE || '';
+  const cve = Array.isArray(v.CVE) ? v.CVE[0] : v.CVE || "";
 
-  /* ---------- Description ---------- */
-  let desc = v.Title?.Value || '';
+  /* ---------------- Description ---------------- */
+  let desc = safeStr(v.Title?.Value);
   if(!desc){
     for(const n of (v.Notes||[])){
-      const t=(n.Title||'').toLowerCase();
-      if(['summary','description','title'].includes(t)){
-        desc = firstText(n.Value,n.Text);
+      const t = safeStr(n.Title).toLowerCase();
+      if(["summary","description","title"].includes(t)){
+        desc = firstText(n.Value, n.Text);
         break;
       }
     }
   }
 
-  /* ---------- CVSS ---------- */
-  const cvssBase = pickCVSS(v.CVSSScoreSets||[]);
-  const severity = severityFromScore(cvssBase);
+  /* ---------------- CVSS / Severity ---------------- */
+  const cvss = pickCVSS(v.CVSSScoreSets||[]);
+  const severity = severityFromScore(cvss);
 
-  /* ---------- SSVC (from Notes[].Text) ---------- */
+  /* ---------------- SSVC ---------------- */
   let ssvc = "";
   for(const n of (v.Notes||[])){
-    const t = (n.Title||"").toLowerCase();
+    const t = safeStr(n.Title).toLowerCase();
     if(t.includes("ssvc")){
       ssvc = firstText(n.Text, n.Value);
       break;
     }
   }
 
-  /* ---------- Impact (from Threats[].Details[].Value) ---------- */
+  /* ---------------- Impact ---------------- */
   let impact = "";
   for(const th of (v.Threats||[])){
     if(!th || typeof th !== "object") continue;
-    const type = (th.Type||"").toLowerCase();
+
+    const type = safeStr(th.Type).toLowerCase();
     if(type.includes("impact")){
       if(Array.isArray(th.Details)){
         impact = firstText(...th.Details.map(d=>d.Value));
@@ -162,17 +187,18 @@ function extract(v){
     }
   }
 
-  /* ---------- Automatable (from Threats[].Details[].Value) ---------- */
+  /* ---------------- Automatable ---------------- */
   let autom = "";
   for(const th of (v.Threats||[])){
     if(!th || typeof th !== "object") continue;
-    const type = (th.Type||"").toLowerCase();
+
+    const type = safeStr(th.Type).toLowerCase();
     if(type.includes("automatable")){
       if(Array.isArray(th.Details)){
         const raw = firstText(...th.Details.map(d=>d.Value)).toLowerCase();
-        if(raw.includes("yes")) autom="Yes";
-        else if(raw.includes("no")) autom="No";
-        else autom="Automatable";
+        if(raw.includes("yes")) autom = "Yes";
+        else if(raw.includes("no")) autom = "No";
+        else autom = "Automatable";
       }
       break;
     }
@@ -182,7 +208,7 @@ function extract(v){
     "CVE-ID": cve,
     "Description": desc,
     "SSVC": ssvc,
-    "CVSS": cvssBase==null?'':cvssBase.toFixed(1),
+    "CVSS": cvss==null?"":cvss.toFixed(1),
     "Severity": severity,
     "Impact": impact,
     "Automatable": autom,
@@ -191,7 +217,9 @@ function extract(v){
   };
 }
 
-/* ---------- Parse Entire CVRF ---------- */
+/****************************************************
+ * PARSE WHOLE CVRF JSON
+ ****************************************************/
 function parseCVRF(json){
   const vulns = Array.isArray(json?.Vulnerability)
     ? json.Vulnerability
@@ -200,18 +228,22 @@ function parseCVRF(json){
       : [];
 
   const out = vulns.map(extract);
+
   out.sort((a,b)=>{
     const as=parseFloat(a.CVSS||0), bs=parseFloat(b.CVSS||0);
-    return (bs - as);
+    return bs - as;
   });
+
   return out;
 }
 
-/* ---------- UI: Build Header ---------- */
+/****************************************************
+ * UI — HEADER
+ ****************************************************/
 function buildHeader(){
-  const tr=document.createElement('tr');
+  const tr=document.createElement("tr");
   COLS.forEach(c=>{
-    const th=document.createElement('th');
+    const th=document.createElement("th");
     th.textContent=c;
     th.onclick=()=>{
       if(sortCol===c) sortDir*=-1;
@@ -220,112 +252,121 @@ function buildHeader(){
     };
     tr.appendChild(th);
   });
-  $('#grid thead').innerHTML='';
-  $('#grid thead').appendChild(tr);
+
+  $("#grid thead").innerHTML="";
+  $("#grid thead").appendChild(tr);
 }
 
-/* ---------- Apply Filters ---------- */
+/****************************************************
+ * FILTER
+ ****************************************************/
 function applyFilters(){
-  const q=($('#q').value||'').toLowerCase();
-  const sev=$('#sev').value;
-  const auto=$('#auto').value;
+  const q = ($("#q").value||"").toLowerCase();
+  const sev = $("#sev").value;
+  const auto = $("#auto").value;
 
   filtered = rows.filter(r=>{
-    const okSev=!sev || r.Severity===sev;
-    const okAuto=!auto || r.Automatable===auto;
-    const hay = COLS.map(c=>String(r[c]||'').toLowerCase()).join('\u0000');
-    const okQ  = !q || hay.includes(q);
+    const okSev = !sev || r.Severity===sev;
+    const okAuto = !auto || r.Automatable===auto;
+    const hay = COLS.map(c=>safeStr(r[c]).toLowerCase()).join("\u0000");
+    const okQ = !q || hay.includes(q);
     return okSev && okAuto && okQ;
   });
 
   render();
 }
 
-/* ---------- Render Table ---------- */
+/****************************************************
+ * RENDER TABLE
+ ****************************************************/
 function render(){
-  filtered.sort((x,y)=>{
-    const xv=x[sortCol]||'';
-    const yv=y[sortCol]||'';
-    if(sortCol==='CVSS'){
-      return ((parseFloat(xv)||0)-(parseFloat(yv)||0))*sortDir;
+  filtered.sort((a,b)=>{
+    const av=a[sortCol]||"", bv=b[sortCol]||"";
+    if(sortCol==="CVSS"){
+      return ((parseFloat(av)||0)-(parseFloat(bv)||0))*sortDir;
     }
-    return xv.localeCompare(yv)*sortDir;
+    return av.localeCompare(bv)*sortDir;
   });
 
-  const body=$('#grid tbody');
-  body.innerHTML='';
+  const body=$("#grid tbody");
+  body.innerHTML="";
+
   for(const r of filtered){
-    const tr=document.createElement('tr');
-    COLS.forEach(c=>{
-      const td=document.createElement('td');
-      const val=r[c]||'';
-      if(c==='Severity'){
-        const b=document.createElement('span');
-        b.className='badge '+val;
+    const tr=document.createElement("tr");
+    for(const c of COLS){
+      const td=document.createElement("td");
+      const val=r[c]||"";
+      if(c==="Severity"){
+        const b=document.createElement("span");
+        b.className="badge "+val;
         b.textContent=val;
         td.appendChild(b);
-      } else td.textContent=val;
+      } else {
+        td.textContent=val;
+      }
       tr.appendChild(td);
-    });
+    }
     body.appendChild(tr);
   }
 
-  $('#stats').textContent=`Showing ${filtered.length} of ${rows.length}`;
-  const disabled = filtered.length===0;
-  $('#exportCsvBtn').disabled = disabled;
-  $('#exportXlsBtn').disabled = disabled;
+  $("#stats").textContent=`Showing ${filtered.length} of ${rows.length}`;
+  const dis = filtered.length===0;
+  $("#exportCsvBtn").disabled = dis;
+  $("#exportXlsBtn").disabled = dis;
 }
 
-/* ---------- CSV & XLS Export ---------- */
+/****************************************************
+ * EXPORT CSV / XLS
+ ****************************************************/
 function toCSV(data){
   const esc=v=>{
-    const s=String(v??'');
+    const s=String(v??"");
     return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
   };
-  const lines=[COLS.join(',')];
-  for(const r of data) lines.push(COLS.map(c=>esc(r[c])).join(','));
-  return lines.join('\n');
+  const lines=[COLS.join(",")];
+  for(const r of data) lines.push(COLS.map(c=>esc(r[c])).join(","));
+  return lines.join("\n");
 }
 
 function exportCSV(){
-  const blob=new Blob([toCSV(filtered)],{type:'text/csv'});
+  const blob=new Blob([toCSV(filtered)],{type:"text/csv"});
   const url=URL.createObjectURL(blob);
-  trigger(url,'soc_table.csv');
+  trigger(url,"soc_table.csv");
 }
 
 function exportXLS(){
-  const header='<tr>'+COLS.map(c=>`<th>${c}</th>`).join('')+'</tr>';
-  const body=filtered
-    .map(r=>'<tr>'+COLS.map(c=>`<td>${r[c]||''}</td>`).join('')+'</tr>')
-    .join('');
+  const header="<tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
+  const body=filtered.map(r=>"<tr>"+COLS.map(c=>`<td>${r[c]||""}</td>`).join("")+"</tr>").join("");
   const html=`<!doctype html><html><body><table>${header}${body}</table></body></html>`;
-  const blob=new Blob([html],{type:'application/vnd.ms-excel'});
+  const blob=new Blob([html],{type:"application/vnd.ms-excel"});
   const url=URL.createObjectURL(blob);
-  trigger(url,'soc_table.xls');
+  trigger(url,"soc_table.xls");
 }
 
 function trigger(url,filename){
-  const a=document.createElement('a');
+  const a=document.createElement("a");
   a.href=url;
   a.download=filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
 }
 
-/* ---------- Bind Events ---------- */
-$('#exportCsvBtn').onclick = exportCSV;
-$('#exportXlsBtn').onclick = exportXLS;
+/****************************************************
+ * EVENTS
+ ****************************************************/
+$("#exportCsvBtn").onclick = exportCSV;
+$("#exportXlsBtn").onclick = exportXLS;
 
-$('#loadBtn').onclick = async () => {
-  const f=$('#cvrf').files[0];
-  if(!f){ alert('Select a CVRF JSON file'); return; }
+$("#loadBtn").onclick = async () => {
+  const f=$("#cvrf").files[0];
+  if(!f){ alert("Please select CVRF JSON"); return; }
 
-  const txt=await readFile(f);
+  const txt = await readFile(f);
   let json;
   try { json=JSON.parse(txt); }
-  catch { alert('Invalid JSON'); return; }
+  catch { alert("Invalid JSON"); return; }
 
   rows = parseCVRF(json);
   filtered = rows.slice();
@@ -333,9 +374,9 @@ $('#loadBtn').onclick = async () => {
   render();
 };
 
-$('#q').oninput = applyFilters;
-$('#sev').onchange = applyFilters;
-$('#auto').onchange = applyFilters;
+$("#q").oninput = applyFilters;
+$("#sev").onchange = applyFilters;
+$("#auto").onchange = applyFilters;
 
 </script>
 
