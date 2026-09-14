@@ -1,125 +1,79 @@
-// ===============================
-// Clean CVRF → Parsed Vulnerabilities
-// ===============================
+function safe(v){return v==null?"":(typeof v==="string"?v:JSON.stringify(v))}
+function ft(...vals){for(const v of vals){const s=safe(v).trim();if(s)return s}return""}
 
-function safeStr(v) {
-  return v == null ? "" : (typeof v === "string" ? v : JSON.stringify(v));
+function pickCVSS(sets){
+  if(!Array.isArray(sets)||!sets.length)return null
+  const list=sets.map(s=>{
+    const v=safe(s.Version||s.version)
+    let b=parseFloat(s.BaseScore||s.baseScore);if(isNaN(b))b=null
+    const p={"3.1":3,"3.0":2,"2.0":1}[v]||0
+    return{p,b}
+  }).sort((a,b)=>(b.p-a.p)||((b.b??0)-(a.b??0)))
+  return list[0].b
 }
 
-function firstText(...vals) {
-  for (const v of vals) {
-    const s = safeStr(v).trim();
-    if (s) return s;
-  }
-  return "";
+function sev(n){
+  if(n==null||isNaN(n))return"UNKNOWN"
+  if(n>=9)return"CRITICAL"
+  if(n>=7)return"HIGH"
+  if(n>=4)return"MEDIUM"
+  if(n>=0)return"LOW"
+  return"UNKNOWN"
 }
 
-function pickCVSS(scoreSets) {
-  if (!Array.isArray(scoreSets) || !scoreSets.length) return null;
+function extract(v){
+  const cve=Array.isArray(v.CVE)?v.CVEv.CVE||""
 
-  const ranked = scoreSets.map(s => {
-    const ver = safeStr(s.Version || s.version);
-    let base = parseFloat(s.BaseScore || s.baseScore);
-    if (isNaN(base)) base = null;
-    const pri = { "3.1": 3, "3.0": 2, "2.0": 1 }[ver] || 0;
-    return { pri, base };
-  }).sort((a, b) => (b.pri - a.pri) || ((b.base ?? 0) - (a.base ?? 0)));
-
-  return ranked[0].base;
-}
-
-function severity(score) {
-  if (score == null || isNaN(score)) return "UNKNOWN";
-  if (score >= 9.0) return "CRITICAL";
-  if (score >= 7.0) return "HIGH";
-  if (score >= 4.0) return "MEDIUM";
-  if (score >= 0.0) return "LOW";
-  return "UNKNOWN";
-}
-
-function extractVuln(v) {
-
-  // --- CVE ---
-  const cve = Array.isArray(v.CVE) ? v.CVE[0] : v.CVE || "";
-
-  // --- Description ---
-  let desc = safeStr(v.Title?.Value);
-  if (!desc) {
-    for (const n of (v.Notes || [])) {
-      const t = safeStr(n.Title).toLowerCase();
-      if (["summary", "description", "title"].includes(t)) {
-        desc = firstText(n.Value, n.Text);
-        break;
+  let desc=safe(v.Title?.Value)
+  if(!desc){
+    for(const n of(v.Notes||[])){
+      const t=safe(n.Title).toLowerCase()
+      if(t==="summary"||t==="description"||t==="title"){
+        desc=ft(n.Value,n.Text);break
       }
     }
   }
 
-  // --- CVSS + Severity ---
-  const cvssBase = pickCVSS(v.CVSSScoreSets || []);
-  const sev      = severity(cvssBase);
+  const cv=pickCVSS(v.CVSSScoreSets||[])
+  const severity=sev(cv)
 
-  // --- SSVC ---
-  let ssvc = "";
-  for (const n of (v.Notes || [])) {
-    const t = safeStr(n.Title).toLowerCase();
-    if (t.includes("ssvc")) {
-      ssvc = firstText(n.Text, n.Value);
-      break;
+  let ssvc=""
+  for(const n of(v.Notes||[])){
+    const t=safe(n.Title).toLowerCase()
+    if(t.includes("ssvc")){ssvc=ft(n.Text,n.Value);break}
+  }
+
+  let impact="",autom=""
+  for(const th of(v.Threats||[])){
+    if(!th||typeof th!=="object")continue
+    const t=safe(th.Type).toLowerCase()
+    if(t.includes("impact")&&Array.isArray(th.Details)){
+      impact=ft(...th.Details.map(d=>d?.Value))
+    }
+    if(t.includes("automatable")&&Array.isArray(th.Details)){
+      const raw=ft(...th.Details.map(d=>d?.Value)).toLowerCase()
+      autom=raw.includes("yes")?"Yes":raw.includes("no")?"No":"Automatable"
     }
   }
 
-  // --- Impact / Automatable ---
-  let impact = "";
-  let autom  = "";
-
-  for (const th of (v.Threats || [])) {
-    if (!th || typeof th !== "object") continue;
-    const type = safeStr(th.Type).toLowerCase();
-
-    if (type.includes("impact") && Array.isArray(th.Details)) {
-      impact = firstText(...th.Details.map(d => d?.Value));
-    }
-
-    if (type.includes("automatable") && Array.isArray(th.Details)) {
-      const raw = firstText(...th.Details.map(d => d?.Value)).toLowerCase();
-      autom = raw.includes("yes")
-        ? "Yes"
-        : raw.includes("no")
-          ? "No"
-          : "Automatable";
-    }
+  return{
+    "CVE-ID":cve,
+    "Description":desc,
+    "SSVC":ssvc,
+    "CVSS":cv==null?"":cv.toFixed(1),
+    "Severity":severity,
+    "Impact":impact,
+    "Automatable":autom
   }
-
-  return {
-    "CVE-ID": cve,
-    "Description": desc,
-    "SSVC": ssvc,
-    "CVSS": cvssBase == null ? "" : cvssBase.toFixed(1),
-    "Severity": sev,
-    "Impact": impact,
-    "Automatable": autom,
-
-    // These are kept blank intentionally so your HTML table still has columns
-    "Internet Exposed": "",
-    "Forensic Triage Required": ""
-  };
 }
 
-function parseCVRF(json) {
-  const vulns =
-    Array.isArray(json?.Vulnerability)
-      ? json.Vulnerability
-      : Array.isArray(json?.Document?.Vulnerability)
-        ? json.Document.Vulnerability
-        : [];
+function parseCVRF(json){
+  const vulns=Array.isArray(json?.Vulnerability)
+    ?json.Vulnerability
+    :Array.isArray(json?.Document?.Vulnerability)
+      ?json.Document.Vulnerability
+      :[]
 
-  return vulns
-    .map(extractVuln)
-    .sort((a, b) => parseFloat(b.CVSS || 0) - parseFloat(a.CVSS || 0));
+  return vulns.map(extract)
+              .sort((a,b)=>parseFloat(b.CVSS||0)-parseFloat(a.CVSS||0))
 }
-
-// ===============================
-// HOW TO USE:
-// const parsed = parseCVRF(yourJsonObject);
-// console.log(parsed);  // => array of vulnerabilities with all metrics
-// ===============================
