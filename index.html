@@ -1,79 +1,193 @@
-function safe(v){return v==null?"":(typeof v==="string"?v:JSON.stringify(v))}
-function ft(...vals){for(const v of vals){const s=safe(v).trim();if(s)return s}return""}
+// ============================================================================
+// FULL CVRF → Vulnerability List Extraction
+// ============================================================================
 
-function pickCVSS(sets){
-  if(!Array.isArray(sets)||!sets.length)return null
-  const list=sets.map(s=>{
-    const v=safe(s.Version||s.version)
-    let b=parseFloat(s.BaseScore||s.baseScore);if(isNaN(b))b=null
-    const p={"3.1":3,"3.0":2,"2.0":1}[v]||0
-    return{p,b}
-  }).sort((a,b)=>(b.p-a.p)||((b.b??0)-(a.b??0)))
-  return list[0].b
+function safeString(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  return JSON.stringify(v);
 }
 
-function sev(n){
-  if(n==null||isNaN(n))return"UNKNOWN"
-  if(n>=9)return"CRITICAL"
-  if(n>=7)return"HIGH"
-  if(n>=4)return"MEDIUM"
-  if(n>=0)return"LOW"
-  return"UNKNOWN"
+function firstNonEmpty(...vals) {
+  for (const v of vals) {
+    const s = safeString(v).trim();
+    if (s) return s;
+  }
+  return "";
 }
 
-function extract(v){
-  const cve=Array.isArray(v.CVE)?v.CVEv.CVE||""
+function normalizeCVSSVersion(v) {
+  const s = safeString(v).trim();
+  if (!s) return "";
+  if (s.startsWith("3.1")) return "3.1";
+  if (s.startsWith("3.0")) return "3.0";
+  if (s.startsWith("2")) return "2.0";
+  return s;
+}
 
-  let desc=safe(v.Title?.Value)
-  if(!desc){
-    for(const n of(v.Notes||[])){
-      const t=safe(n.Title).toLowerCase()
-      if(t==="summary"||t==="description"||t==="title"){
-        desc=ft(n.Value,n.Text);break
-      }
+function pickBestCVSS(scoreSets) {
+  if (!Array.isArray(scoreSets) || !scoreSets.length) return { score: null, vector: "", version: "" };
+
+  const ranked = scoreSets.map(entry => {
+    const version = normalizeCVSSVersion(entry.Version || entry.version);
+    let baseScore = entry.BaseScore || entry.baseScore;
+    try { baseScore = parseFloat(baseScore); } catch { baseScore = null; }
+    if (isNaN(baseScore)) baseScore = null;
+
+    const priority = { "3.1": 3, "3.0": 2, "2.0": 1 }[version] || 0;
+
+    return {
+      priority,
+      baseScore,
+      vector: entry.Vector || entry.vector || "",
+      version
+    };
+  });
+
+  ranked.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    const as = a.baseScore ?? -1;
+    const bs = b.baseScore ?? -1;
+    return bs - as;
+  });
+
+  const best = ranked[0];
+  return {
+    score: best.baseScore,
+    version: best.version,
+    vector: best.vector
+  };
+}
+
+function severityFromScore(score) {
+  if (score === null || score === undefined || isNaN(score)) return "UNKNOWN";
+  if (score >= 9.0) return "CRITICAL";
+  if (score >= 7.0) return "HIGH";
+  if (score >= 4.0) return "MEDIUM";
+  if (score >= 0.0) return "LOW";
+  return "UNKNOWN";
+}
+
+function extractDescription(v) {
+  const titleObj = v.Title;
+  if (titleObj && typeof titleObj === "object") {
+    const t = firstNonEmpty(titleObj.Value, titleObj.Text);
+    if (t) return t.trim();
+  }
+
+  for (const note of (v.Notes || [])) {
+    const t = safeString(note.Title).toLowerCase();
+    if (t === "summary" || t === "description" || t === "title") {
+      const d = firstNonEmpty(note.Value, note.Text);
+      if (d) return d.trim();
     }
   }
 
-  const cv=pickCVSS(v.CVSSScoreSets||[])
-  const severity=sev(cv)
-
-  let ssvc=""
-  for(const n of(v.Notes||[])){
-    const t=safe(n.Title).toLowerCase()
-    if(t.includes("ssvc")){ssvc=ft(n.Text,n.Value);break}
-  }
-
-  let impact="",autom=""
-  for(const th of(v.Threats||[])){
-    if(!th||typeof th!=="object")continue
-    const t=safe(th.Type).toLowerCase()
-    if(t.includes("impact")&&Array.isArray(th.Details)){
-      impact=ft(...th.Details.map(d=>d?.Value))
-    }
-    if(t.includes("automatable")&&Array.isArray(th.Details)){
-      const raw=ft(...th.Details.map(d=>d?.Value)).toLowerCase()
-      autom=raw.includes("yes")?"Yes":raw.includes("no")?"No":"Automatable"
-    }
-  }
-
-  return{
-    "CVE-ID":cve,
-    "Description":desc,
-    "SSVC":ssvc,
-    "CVSS":cv==null?"":cv.toFixed(1),
-    "Severity":severity,
-    "Impact":impact,
-    "Automatable":autom
-  }
+  return "";
 }
 
-function parseCVRF(json){
-  const vulns=Array.isArray(json?.Vulnerability)
-    ?json.Vulnerability
-    :Array.isArray(json?.Document?.Vulnerability)
-      ?json.Document.Vulnerability
-      :[]
-
-  return vulns.map(extract)
-              .sort((a,b)=>parseFloat(b.CVSS||0)-parseFloat(a.CVSS||0))
+function extractSSVC(v) {
+  for (const note of (v.Notes || [])) {
+    const t = safeString(note.Title).toLowerCase();
+    if (t.includes("ssvc")) {
+      return firstNonEmpty(note.Text, note.Value);
+    }
+  }
+  return "";
 }
+
+function extractImpact(v) {
+  for (const th of (v.Threats || [])) {
+    if (!th || typeof th !== "object") continue;
+    const type = safeString(th.Type).toLowerCase();
+    if (type.includes("impact") && Array.isArray(th.Details)) {
+      return firstNonEmpty(...th.Details.map(d => d?.Value)).trim();
+    }
+  }
+
+  for (const note of (v.Notes || [])) {
+    const t = safeString(note.Title).toLowerCase();
+    if (t.includes("impact")) {
+      return firstNonEmpty(note.Text, note.Value).trim();
+    }
+  }
+
+  return "";
+}
+
+function extractAutomatable(v) {
+  for (const th of (v.Threats || [])) {
+    if (!th || typeof th !== "object") continue;
+    const type = safeString(th.Type).toLowerCase();
+    if (type.includes("automatable") && Array.isArray(th.Details)) {
+      const raw = firstNonEmpty(...th.Details.map(d => d?.Value)).toLowerCase();
+      if (raw.includes("yes")) return "Yes";
+      if (raw.includes("no")) return "No";
+      return "Automatable";
+    }
+  }
+
+  return "";
+}
+
+function extractVulnerability(v) {
+
+  // CVE
+  const cveField = v.CVE;
+  let cve = "";
+  if (Array.isArray(cveField) && cveField.length) cve = cveField[0];
+  else if (typeof cveField === "string") cve = cveField;
+
+  // Description
+  const description = extractDescription(v);
+
+  // CVSS
+  const cvss = pickBestCVSS(v.CVSSScoreSets || []);
+  const cvssScore = cvss.score;
+  const cvssString = cvssScore == null ? "" : cvssScore.toFixed(1);
+  const severity = severityFromScore(cvssScore);
+
+  // SSVC
+  const ssvc = extractSSVC(v);
+
+  // Impact
+  const impact = extractImpact(v);
+
+  // Automatable
+  const automatable = extractAutomatable(v);
+
+  return {
+    "CVE-ID": cve,
+    "Description": description,
+    "SSVC": ssvc,
+    "CVSS": cvssString,
+    "Severity": severity,
+    "Impact": impact,
+    "Automatable": automatable,
+
+    // leave blank (your dashboard UI uses them)
+    "Internet Exposed": "",
+    "Forensic Triage Required": ""
+  };
+}
+
+function parseCVRF(json) {
+  const vulns =
+    Array.isArray(json?.Vulnerability)
+      ? json.Vulnerability
+      : Array.isArray(json?.Document?.Vulnerability)
+        ? json.Document.Vulnerability
+        : [];
+
+  const rows = vulns.map(extractVulnerability);
+
+  rows.sort((a, b) => parseFloat(b.CVSS || 0) - parseFloat(a.CVSS || 0));
+
+  return rows;
+}
+
+// ============================================================================
+// USAGE:
+// const results = parseCVRF(cvrfJsonObject);
+// console.log(results);
+// ============================================================================
