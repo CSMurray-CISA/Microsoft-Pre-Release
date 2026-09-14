@@ -5,7 +5,7 @@
 <title>SOC CVRF Dashboard (PGP + Light/Dark)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- CORRECT script tags (this was your error) -->
+<!-- REQUIRED: Correct external script tags -->
 https://cdn.jsdelivr.net/npm/openpgp@5.10.1/dist/openpgp.min.js</script>
 https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 
@@ -26,6 +26,7 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
     --bg:#f8f8f8; --fg:#111; --panel:#fff; --border:#ccc;
     --input-bg:#fff; --input-fg:#111; --input-border:#aaa;
     --thead:#f0f0f0; --hover:#fafafa; --muted:#444;
+
     --crit-bg:#b30000; --crit-fg:#fff;
     --high-bg:#e74c3c; --high-fg:#fff;
     --med-bg:#f39c12; --med-fg:#111;
@@ -33,22 +34,28 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
     --unk-bg:#95a5a6; --unk-fg:#000;
   }
 
-  body { background:var(--bg); color:var(--fg); margin:20px;
-    font-family:system-ui, sans-serif; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: system-ui, sans-serif; margin:20px;
+  }
+
   .toolbar { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
   .toolbar input,.toolbar select,.toolbar button {
     background:var(--input-bg); color:var(--input-fg);
     border:1px solid var(--input-border);
     padding:6px 10px; border-radius:5px;
   }
+
   input[type="search"] { width:300px; }
 
-  .table-wrap { border:1px solid var(--border); border-radius:6px;
-    overflow:auto; background:var(--panel); }
+  .table-wrap {
+    border:1px solid var(--border); border-radius:6px;
+    overflow:auto; background:var(--panel);
+  }
 
   table { width:100%; border-collapse:collapse; }
-  th,td { padding:8px; border-bottom:1px solid var(--border); }
-  th { background:var(--thead); cursor:pointer; position:sticky; top:0;}
+  th,td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { background:var(--thead); cursor:pointer; position:sticky; top:0; }
   tr:hover { background:var(--hover); }
 
   .badge { padding:2px 8px; border-radius:10px; }
@@ -59,6 +66,7 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
   .UNKNOWN{background:var(--unk-bg);color:var(--unk-fg);}
 
   #msg { margin-left:10px; }
+  #stats { margin-top:10px; font-size:13px; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -66,15 +74,20 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 <h1>SOC CVRF Dashboard</h1>
 
 <div class="toolbar">
+
+  <!-- Theme -->
   <button id="themeBtn">🌓 Theme</button>
 
+  <!-- JSON -->
   <input id="jsonFile" type="file" accept=".json">
   <button id="loadJsonBtn">Load JSON</button>
 
-  <input id="pgpFile" type="file" accept=".pgp,.gpg">
-  <input id="pgpPass" type="password" placeholder="PGP password…">
+  <!-- PGP -->
+  <input id="pgpFile" type="file" accept=".pgp,.gpg"/>
+  <input id="pgpPass" type="password" placeholder="PGP password…"/>
   <button id="loadPGPBtn">Decrypt & Load PGP</button>
 
+  <!-- Filters -->
   <input id="search" type="search" placeholder="Filter…">
 
   <select id="sev">
@@ -88,22 +101,25 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
     <option>Yes</option><option>No</option><option>Automatable</option>
   </select>
 
+  <!-- Export -->
   <button id="csvBtn" disabled>CSV</button>
   <button id="xlsBtn" disabled>Excel</button>
+
   <span id="msg"></span>
 </div>
 
 <div class="table-wrap">
   <table id="grid">
-    <thead></thead>
-    <tbody></tbody>
+    <thead></thead><tbody></tbody>
   </table>
 </div>
 
 <div id="stats"></div>
 
 <script>
-/* ===== THEME ===== */
+/* ============================================================
+   THEME SYSTEM
+   ============================================================ */
 function setTheme(mode){
   localStorage.setItem("theme", mode);
   if(mode==="system") document.documentElement.removeAttribute("data-theme");
@@ -112,41 +128,49 @@ function setTheme(mode){
 (function(){
   const saved = localStorage.getItem("theme") || "system";
   setTheme(saved);
-  document.getElementById("themeBtn").onclick = () => {
+
+  document.getElementById("themeBtn").onclick = ()=>{
     const cur = localStorage.getItem("theme") || "system";
     const nxt = cur==="system" ? "light" : cur==="light" ? "dark" : "system";
     setTheme(nxt);
   };
 })();
 
-/* ===== UTIL ===== */
+/* ============================================================
+   UTILS
+   ============================================================ */
 function flash(msg, warn=false){
   const m=document.getElementById("msg");
   m.textContent=msg;
   m.style.color = warn ? "#E67E22" : "var(--muted)";
-  setTimeout(()=>m.textContent="", 3200);
+  setTimeout(()=>m.textContent="",3200);
 }
-function safeStr(v){ return v==null ? "" : (typeof v==="string" ? v : JSON.stringify(v)); }
+
+function safeStr(v){ return v==null ? "" : (typeof v==="string"?v:JSON.stringify(v)); }
 function firstText(...vals){
-  for(const v of vals) { const t=safeStr(v).trim(); if(t) return t; }
+  for(const v of vals){ const s=safeStr(v).trim(); if(s) return s; }
   return "";
 }
+
 async function readText(file){
-  return new Promise((res,rej)=>{
+  return new Promise((resolve,reject)=>{
     const r=new FileReader();
-    r.onload=()=>res(r.result);
-    r.onerror=rej;
+    r.onload=()=>resolve(r.result);
+    r.onerror=reject;
     r.readAsText(file);
   });
 }
+
 async function readBytes(file){
   return new Uint8Array(await file.arrayBuffer());
 }
 
-/* ===== CVSS ===== */
+/* ============================================================
+   CVSS / Severity
+   ============================================================ */
 function pickCVSS(sets){
   if(!Array.isArray(sets)||!sets.length) return null;
-  const ranked = sets.map(s=>{
+  const ranked=sets.map(s=>{
     let base=parseFloat(s.BaseScore||s.baseScore);
     if(isNaN(base)) base=null;
     const ver=safeStr(s.Version||s.version);
@@ -164,42 +188,42 @@ function severity(score){
   return "UNKNOWN";
 }
 
-/* ===== PARSE ===== */
+/* ============================================================
+   PARSE CVRF
+   ============================================================ */
 function extract(v){
-  const cve=Array.isArray(v.CVE)?v.CVEv.CVE||"";
+  const cve = Array.isArray(v.CVE) ? v.CVEv.CVE || "";
 
   let desc=safeStr(v.Title?.Value);
   if(!desc){
     for(const n of (v.Notes||[])){
       const t=safeStr(n.Title).toLowerCase();
       if(["summary","description","title"].includes(t)){
-        desc=firstText(n.Value,n.Text);
+        desc = firstText(n.Value,n.Text);
         break;
       }
     }
   }
 
-  const cvss=pickCVSS(v.CVSSScoreSets||[]);
-  const sev=severity(cvss);
+  const cvss = pickCVSS(v.CVSSScoreSets||[]);
+  const sev  = severity(cvss);
 
   let ssvc="";
   for(const n of (v.Notes||[])){
     const t=safeStr(n.Title).toLowerCase();
-    if(t.includes("ssvc")){ ssvc=firstText(n.Text,n.Value); break; }
+    if(t.includes("ssvc")){ ssvc=firstText(n.Text,n.Value); break;}
   }
 
-  let impact="", autom="";
+  let impact="",autom="";
   for(const th of (v.Threats||[])){
     if(!th||typeof th!=="object") continue;
     const type=safeStr(th.Type).toLowerCase();
-    if(type.includes("impact")&&Array.isArray(th.Details))
-      impact=firstText(...th.Details.map(d=>d?.Value));
-
-    if(type.includes("automatable")&&Array.isArray(th.Details)){
+    if(type.includes("impact") && Array.isArray(th.Details)){
+      impact = firstText(...th.Details.map(d=>d?.Value));
+    }
+    if(type.includes("automatable") && Array.isArray(th.Details)){
       const raw=firstText(...th.Details.map(d=>d?.Value)).toLowerCase();
-      autom = raw.includes("yes") ? "Yes"
-            : raw.includes("no")  ? "No"
-            : "Automatable";
+      autom = raw.includes("yes")?"Yes":raw.includes("no")?"No":"Automatable";
     }
   }
 
@@ -225,13 +249,16 @@ function parseCVRF(json){
   return vulns.map(extract).sort((a,b)=>parseFloat(b.CVSS||0)-parseFloat(a.CVSS||0));
 }
 
-/* ===== TABLE ===== */
-let rows=[],filtered=[];
+/* ============================================================
+   TABLE
+   ============================================================ */
+let rows=[], filtered=[];
+let sortCol="CVSS", sortDir=1;
+
 const COLS=[
   "CVE-ID","Description","SSVC","CVSS","Severity",
   "Impact","Automatable","Internet Exposed","Forensic Triage Required"
 ];
-let sortCol="CVSS",sortDir=1;
 
 function buildHeader(){
   const h=document.querySelector("#grid thead");
@@ -240,7 +267,10 @@ function buildHeader(){
   for(const c of COLS){
     const th=document.createElement("th");
     th.textContent=c;
-    th.onclick=()=>{ sortDir = (sortCol===c ? -sortDir : 1); sortCol=c; render(); };
+    th.onclick=()=>{
+      sortDir = (sortCol===c ? -sortDir : 1);
+      sortCol=c; render();
+    };
     tr.appendChild(th);
   }
   h.appendChild(tr);
@@ -252,10 +282,10 @@ function applyFilters(){
   const auto=document.getElementById("auto").value;
 
   filtered=rows.filter(r=>{
-    const okSev=!sev||r.Severity===sev;
-    const okAuto=!auto||r.Automatable===auto;
+    const okSev = !sev || r.Severity===sev;
+    const okAuto= !auto || r.Automatable===auto;
     const hay=COLS.map(c=>safeStr(r[c]).toLowerCase()).join("\u0000");
-    return okSev&&okAuto&&(!q||hay.includes(q));
+    return okSev && okAuto && (!q || hay.includes(q));
   });
 
   render();
@@ -264,7 +294,7 @@ function applyFilters(){
 function render(){
   filtered.sort((a,b)=>{
     const av=a[sortCol]||"", bv=b[sortCol]||"";
-    if(sortCol==="CVSS") return ((parseFloat(av)||0)-(parseFloat(bv)||0))*sortDir;
+    if(sortCol==="CVSS") return((parseFloat(av)||0)-(parseFloat(bv)||0))*sortDir;
     return av.localeCompare(bv)*sortDir;
   });
 
@@ -283,13 +313,15 @@ function render(){
   }
 
   document.getElementById("csvBtn").disabled=(filtered.length===0);
-  document.getElementById("xlsBtn").disabled=(filtered.length===0);
+  document.getElementById("xlsBtn").disable=(filtered.length===0);
 
   document.getElementById("stats").textContent=
     `Showing ${filtered.length} of ${rows.length}`;
 }
 
-/* ===== EXPORT ===== */
+/* ============================================================
+   EXPORT
+   ============================================================ */
 function toCSV(data){
   const esc=v=>{
     const s=String(v??"");
@@ -308,19 +340,22 @@ function download(url,name){
 }
 
 document.getElementById("csvBtn").onclick=()=>{
-  download(URL.createObjectURL(new Blob([toCSV(filtered)],{type:"text/csv"})),
-    "soc_table.csv");
+  const blob=new Blob([toCSV(filtered)],{type:"text/csv"});
+  download(URL.createObjectURL(blob),"soc_table.csv");
 };
+
 document.getElementById("xlsBtn").onclick=()=>{
   const head="<tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
   const body=filtered.map(r=>"<tr>"+
     COLS.map(c=>`<td>${r[c]||""}</td>`).join("")+"</tr>").join("");
-  const html=`<!doctype html><html><body><table>${head}${body}</table>`;
-  download(URL.createObjectURL(new Blob([html],{type:"application/vnd.ms-excel"})),
-    "soc_table.xls");
+  const html=`<!doctype html><html><body><table>${head}${body}</table></body></html>`;
+  const blob=new Blob([html],{type:"application/vnd.ms-excel"});
+  download(URL.createObjectURL(blob),"soc_table.xls");
 };
 
-/* ===== JSON LOAD ===== */
+/* ============================================================
+   LOAD JSON
+   ============================================================ */
 document.getElementById("loadJsonBtn").onclick=async()=>{
   const f=document.getElementById("jsonFile").files[0];
   if(!f) return flash("Select JSON",true);
@@ -333,12 +368,14 @@ document.getElementById("loadJsonBtn").onclick=async()=>{
   }catch(e){ flash("JSON error: "+e,true); }
 };
 
-/* ===== PGP LOAD ===== */
+/* ============================================================
+   LOAD PGP
+   ============================================================ */
 document.getElementById("loadPGPBtn").onclick=async()=>{
   const f=document.getElementById("pgpFile").files[0];
   const pw=document.getElementById("pgpPass").value;
 
-  if(!f) return flash("Select PGP",true);
+  if(!f) return flash("Select PGP file",true);
   if(!pw) return flash("Password required",true);
 
   try{
@@ -346,29 +383,28 @@ document.getElementById("loadPGPBtn").onclick=async()=>{
     const bytes=await readBytes(f);
 
     let message;
-    if(text.startsWith("-----BEGIN PGP")){
+    if(text.startsWith("-----BEGIN PGP"))
       message=await openpgp.readMessage({armoredMessage:text});
-    } else {
+    else
       message=await openpgp.readMessage({binaryMessage:bytes});
-    }
 
     const {data}=await openpgp.decrypt({
-      message, passwords:[pw], format:"binary"
+      message,passwords:[pw],format:"binary"
     });
 
-    const u8=data instanceof Uint8Array ? data : new Uint8Array(data);
-    const isZip = u8[0]===0x50 && u8[1]===0x4B;
+    const u8=data instanceof Uint8Array?data:new Uint8Array(data);
+    const isZip=u8[0]===0x50 && u8[1]===0x4B;
 
     let jsonText;
     if(isZip){
       const zip=await JSZip.loadAsync(u8);
       let found="";
-      zip.forEach((p,e)=>{
+      zip.forEach((p,e)=>{ 
         if(!e.dir && p.toLowerCase().endsWith(".json")){
-          if(!found || /cvrf/i.test(p)) found=p;
+          if(!found||/cvrf/i.test(p)) found=p;
         }
       });
-      if(!found) throw new Error("JSON not found in ZIP");
+      if(!found) throw new Error("No JSON found in ZIP");
       jsonText=await zip.file(found).async("string");
     } else {
       jsonText=new TextDecoder().decode(u8);
@@ -379,10 +415,13 @@ document.getElementById("loadPGPBtn").onclick=async()=>{
     buildHeader(); render();
     flash("PGP decrypted");
   }
-  catch(e){ flash("Decrypt failed: "+e,true); }
+  catch(e){
+    console.error(e);
+    flash("Decrypt failed: "+e,true);
+  }
 };
 
-/* FILTER EVENTS */
+/* FILTERS */
 document.getElementById("search").oninput=applyFilters;
 document.getElementById("sev").onchange=applyFilters;
 document.getElementById("auto").onchange=applyFilters;
