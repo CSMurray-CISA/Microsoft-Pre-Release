@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>SOC CVRF Dashboard (PGP + Light/Dark Mode)</title>
+<title>SOC CVRF Dashboard (PGP + Light/Dark)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Correct script includes -->
+<!-- Correct CDN script tags -->
 https://cdn.jsdelivr.net/npm/openpgp@5.10.1/dist/openpgp.min.js</script>
 https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 
@@ -22,9 +22,9 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
     --unk-bg:#777; --unk-fg:#111;
   }
   [data-theme="light"] {
-    --bg:#f6f6f6; --fg:#111; --panel:#fff; --border:#ccc;
-    --input-bg:#fff; --input-fg:#111; --input-border:#999;
-    --thead:#f0f0f0; --hover:#f9f9f9; --muted:#444;
+    --bg:#f8f8f8; --fg:#111; --panel:#fff; --border:#ccc;
+    --input-bg:#fff; --input-fg:#111; --input-border:#aaa;
+    --thead:#f0f0f0; --hover:#fafafa; --muted:#444;
 
     --crit-bg:#b30000; --crit-fg:#fff;
     --high-bg:#e74c3c; --high-fg:#fff;
@@ -35,36 +35,39 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 
   body {
     font-family: system-ui, sans-serif;
-    background: var(--bg); color: var(--fg);
-    margin: 20px;
+    background: var(--bg);
+    color: var(--fg);
+    margin: 16px;
   }
-  h1 { margin-bottom:15px; }
 
-  .toolbar { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:10px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
   .toolbar input,.toolbar select,.toolbar button {
-    padding:6px 8px; border-radius:5px;
     background:var(--input-bg); color:var(--input-fg);
-    border:1px solid var(--input-border);
+    border:1px solid var(--input-border); padding:6px 10px;
+    border-radius:5px; font-size:14px;
   }
   input[type="search"] { width:300px; }
 
-  .table-wrap { border:1px solid var(--border); border-radius:6px; overflow:auto; background:var(--panel); }
+  .table-wrap {
+    border:1px solid var(--border); border-radius:6px;
+    overflow:auto; background:var(--panel);
+  }
+
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th,td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; }
   th { background:var(--thead); cursor:pointer; position:sticky; top:0; }
   tr:hover { background:var(--hover); }
 
-  .badge { padding:2px 7px; border-radius:10px; }
-  .CRITICAL { background:var(--crit-bg); color:var(--crit-fg); }
-  .HIGH     { background:var(--high-bg); color:var(--high-fg); }
-  .MEDIUM   { background:var(--med-bg); color:var(--med-fg); }
-  .LOW      { background:var(--low-bg); color:var(--low-fg); }
-  .UNKNOWN  { background:var(--unk-bg); color:var(--unk-fg); }
+  .badge { padding:2px 8px; border-radius:10px; }
+  .CRITICAL { background:var(--crit-bg); color:var(--crit-fg);}
+  .HIGH     { background:var(--high-bg); color:var(--high-fg);}
+  .MEDIUM   { background:var(--med-bg); color:var(--med-fg);}
+  .LOW      { background:var(--low-bg); color:var(--low-fg);}
+  .UNKNOWN  { background:var(--unk-bg); color:var(--unk-fg);}
 
-  #msg { margin-left:10px; font-size:12px; color:var(--muted); }
-  .warn { color:#E67E22; font-weight:600; }
-
-  #stats { margin-top:8px; font-size:12px; color:var(--muted); }
+  #msg { margin-left:10px; font-size:13px; color:var(--muted); }
+  #stats { margin-top:10px; font-size:13px; color:var(--muted); }
+  .warn { color:#E67E22; font-weight:bold; }
 </style>
 </head>
 <body>
@@ -73,26 +76,29 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 
 <div class="toolbar">
 
-  <!-- Theme toggle -->
+  <!-- Theme -->
   <button id="themeBtn">🌓 Theme</button>
 
-  <!-- JSON loader -->
+  <!-- Plain JSON -->
   <input id="jsonFile" type="file" accept=".json">
-  <button id="loadJsonBtn">Load JSON</button>
+  <button id="jsonLoadBtn">Load JSON</button>
 
-  <!-- PGP loader -->
-  <input id="pgpFile" type="file" accept=".pgp,.gpg">
-  <input id="pgpPass" type="password" placeholder="PGP password…">
-  <button id="decryptBtn">Decrypt & Load PGP</button>
+  <!-- PGP -->
+  <input id="pgpFile" type="file" accept=".pgp,.gpg" />
+  <input id="pgpPass" type="password" placeholder="PGP password…" />
+  <button id="pgpLoadBtn">Decrypt & Load PGP</button>
 
   <!-- Filters -->
-  <input id="search" type="search" placeholder="Filter (CVE, Description…)">
-  <select id="sev"><option value="">Severity</option>
+  <input id="search" type="search" placeholder="Filter (CVE, Description…)" />
+
+  <select id="sev">
+    <option value="">Severity</option>
     <option>CRITICAL</option><option>HIGH</option>
     <option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
   </select>
 
-  <select id="auto"><option value="">Automatable</option>
+  <select id="auto">
+    <option value="">Automatable</option>
     <option>Yes</option><option>No</option><option>Automatable</option>
   </select>
 
@@ -114,19 +120,21 @@ https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
 
 <script>
 /* ============================================================
-   LIGHT/DARK MODE
+   THEME SYSTEM
    ============================================================ */
 function setTheme(mode){
   localStorage.setItem("theme",mode);
   if(mode==="system") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme",mode);
 }
+
 (function(){
   const saved = localStorage.getItem("theme") || "system";
   setTheme(saved);
+
   document.getElementById("themeBtn").onclick = ()=>{
     const cur = localStorage.getItem("theme") || "system";
-    const next = cur==="system" ? "light" : (cur==="light" ? "dark" : "system");
+    const next = cur==="system" ? "light" : cur==="light" ? "dark" : "system";
     setTheme(next);
   };
 })();
@@ -138,19 +146,24 @@ function flash(msg,warn=false){
   const m=document.getElementById("msg");
   m.textContent=msg;
   m.classList.toggle("warn",warn);
-  setTimeout(()=>{m.textContent="";m.classList.remove("warn");},3200);
+  setTimeout(()=>{m.textContent="";m.classList.remove("warn");},3300);
 }
-function safeStr(v){return v==null?"":(typeof v==="string"?v:JSON.stringify(v));}
-function firstText(...vals){ for(const v of vals){const t=safeStr(v).trim(); if(t) return t;} return ""; }
+
+function safeStr(v){ return v==null ? "" : (typeof v==="string" ? v : JSON.stringify(v)); }
+function firstText(...vals){
+  for(const v of vals){ const s=safeStr(v).trim(); if(s) return s; }
+  return "";
+}
 
 async function readText(file){
-  return new Promise((res,rej)=>{
+  return new Promise((resolve,reject)=>{
     const r=new FileReader();
-    r.onload=()=>res(r.result);
-    r.onerror=rej;
+    r.onload=()=>resolve(r.result);
+    r.onerror=reject;
     r.readAsText(file);
   });
 }
+
 async function readBytes(file){
   return new Uint8Array(await file.arrayBuffer());
 }
@@ -160,44 +173,45 @@ async function readBytes(file){
    ============================================================ */
 function pickCVSS(sets){
   if(!Array.isArray(sets)||!sets.length) return null;
-  const ranked = sets.map(s=>{
-    let base = parseFloat(s.BaseScore||s.baseScore);
+  const ranked=sets.map(s=>{
+    let base=parseFloat(s.BaseScore||s.baseScore);
     if(isNaN(base)) base=null;
-    const ver = safeStr(s.Version||s.version);
-    const pri = {"3.1":3,"3.0":2,"2.0":1}[ver] || 0;
+    const ver=safeStr(s.Version||s.version);
+    const pri={"3.1":3,"3.0":2,"2.0":1}[ver]||0;
     return {pri,base};
   }).sort((a,b)=>(b.pri-a.pri)||((b.base??0)-(a.base??0)));
   return ranked[0].base;
 }
 function severity(score){
   if(score==null||isNaN(score)) return "UNKNOWN";
-  if(score>=9.0) return "CRITICAL";
-  if(score>=7.0) return "HIGH";
-  if(score>=4.0) return "MEDIUM";
-  if(score>=0.0) return "LOW";
+  if(score>=9) return "CRITICAL";
+  if(score>=7) return "HIGH";
+  if(score>=4) return "MEDIUM";
+  if(score>=0) return "LOW";
   return "UNKNOWN";
 }
 
 /* ============================================================
-   CVRF Parse
+   PARSE CVRF
    ============================================================ */
 function extract(v){
-  const cve = Array.isArray(v.CVE)?v.CVEv.CVE||"";
+  const cve = Array.isArray(v.CVE) ? v.CVEv.CVE||"";
+
   let desc = safeStr(v.Title?.Value);
   if(!desc){
     for(const n of (v.Notes||[])){
       const t=safeStr(n.Title).toLowerCase();
       if(["summary","description","title"].includes(t)){
-        desc = firstText(n.Value,n.Text);
+        desc=firstText(n.Value,n.Text);
         break;
       }
     }
   }
 
-  const cvss = pickCVSS(v.CVSSScoreSets||[]);
-  const sev  = severity(cvss);
+  const cvss=pickCVSS(v.CVSSScoreSets||[]);
+  const sev = severity(cvss);
 
-  let ssvc="";  
+  let ssvc="";
   for(const n of (v.Notes||[])){
     const t=safeStr(n.Title).toLowerCase();
     if(t.includes("ssvc")){ ssvc=firstText(n.Text,n.Value); break; }
@@ -207,11 +221,11 @@ function extract(v){
   for(const th of (v.Threats||[])){
     if(!th||typeof th!=="object") continue;
     const type=safeStr(th.Type).toLowerCase();
-    if(type.includes("impact") && Array.isArray(th.Details)){
+    if(type.includes("impact") && Array.isArray(th.Details))
       impact = firstText(...th.Details.map(d=>d?.Value));
-    }
+
     if(type.includes("automatable") && Array.isArray(th.Details)){
-      const raw = firstText(...th.Details.map(d=>d?.Value)).toLowerCase();
+      const raw=firstText(...th.Details.map(d=>d?.Value)).toLowerCase();
       if(raw.includes("yes")) autom="Yes";
       else if(raw.includes("no")) autom="No";
       else autom="Automatable";
@@ -232,7 +246,7 @@ function extract(v){
 }
 
 function parseCVRF(json){
-  const vulns = Array.isArray(json?.Vulnerability)
+  const vulns=Array.isArray(json?.Vulnerability)
     ? json.Vulnerability
     : Array.isArray(json?.Document?.Vulnerability)
       ? json.Document.Vulnerability
@@ -256,27 +270,25 @@ function buildHeader(){
   for(const c of COLS){
     const th=document.createElement("th");
     th.textContent=c;
-    th.onclick=()=>{
-      if(sortCol===c) sortDir*=-1; else {sortCol=c; sortDir=1;}
-      render();
-    };
+    th.onclick=()=>{ sortDir = (sortCol===c ? -sortDir : 1); sortCol=c; render(); };
     tr.appendChild(th);
   }
-  $("#grid thead").innerHTML="";
-  $("#grid thead").appendChild(tr);
+  document.querySelector("#grid thead").innerHTML="";
+  document.querySelector("#grid thead").appendChild(tr);
 }
 
 function applyFilters(){
-  const q=$("#search").value.toLowerCase();
-  const sev=$("#sev").value;
-  const auto=$("#auto").value;
+  const q=document.getElementById("search").value.toLowerCase();
+  const sev=document.getElementById("sev").value;
+  const auto=document.getElementById("auto").value;
 
-  filtered = rows.filter(r=>{
-    const okSev = !sev || r.Severity===sev;
-    const okAuto= !auto|| r.Automatable===auto;
-    const hay = COLS.map(c=>safeStr(r[c]).toLowerCase()).join("\u0000");
+  filtered=rows.filter(r=>{
+    const okSev=!sev||r.Severity===sev;
+    const okAuto=!auto||r.Automatable===auto;
+    const hay=COLS.map(c=>safeStr(r[c]).toLowerCase()).join("\u0000");
     return okSev && okAuto && (!q || hay.includes(q));
   });
+
   render();
 }
 
@@ -287,28 +299,24 @@ function render(){
     return av.localeCompare(bv)*sortDir;
   });
 
-  const body=$("#grid tbody");
+  const body=document.querySelector("#grid tbody");
   body.innerHTML="";
-
   for(const r of filtered){
     const tr=document.createElement("tr");
     for(const c of COLS){
       const td=document.createElement("td");
       const v=r[c]||"";
       if(c==="Severity"){
-        const b=document.createElement("span");
-        b.className="badge "+v;
-        b.textContent=v;
-        td.appendChild(b);
+        td.innerHTML=`<span class="badge ${v}">${v}</span>`;
       } else td.textContent=v;
       tr.appendChild(td);
     }
     body.appendChild(tr);
   }
 
-  $("#stats").textContent=`Showing ${filtered.length} of ${rows.length}`;
-  $("#csvBtn").disabled = filtered.length===0;
-  $("#xlsBtn").disabled = filtered.length===0;
+  document.getElementById("stats").textContent=`Showing ${filtered.length} of ${rows.length}`;
+  document.getElementById("csvBtn").disabled=(filtered.length===0);
+  document.getElementById("xlsBtn").disabled=(filtered.length===0);
 }
 
 /* ============================================================
@@ -317,54 +325,58 @@ function render(){
 function toCSV(data){
   const esc=v=>{
     const s=String(v??"");
-    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+    return /[",\n]/.test(s)?'"'+s.replace(/"/g,"""")+'"':s;
   };
   const lines=[COLS.join(",")];
   for(const r of data) lines.push(COLS.map(c=>esc(r[c])).join(","));
   return lines.join("\n");
 }
-function downloadURL(url,name){
+
+function download(url,name){
   const a=document.createElement("a");
   a.href=url; a.download=name;
   document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),2000);
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
-$("#csvBtn").onclick=()=>{
+
+document.getElementById("csvBtn").onclick=()=>{
   const blob=new Blob([toCSV(filtered)],{type:"text/csv"});
-  downloadURL(URL.createObjectURL(blob),"soc_table.csv");
+  download(URL.createObjectURL(blob),"soc_table.csv");
 };
-$("#xlsBtn").onclick=()=>{
-  const header="<tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
+
+document.getElementById("xlsBtn").onclick=()=>{
+  const head="<tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
   const body=filtered.map(r=>"<tr>"+COLS.map(c=>`<td>${r[c]||""}</td>`).join("")+"</tr>").join("");
-  const html=`<!doctype html><html><body><table>${header}${body}</table></body></html>`;
+  const html=`<!doctype html><html><body><table>${head}${body}</table></body></html>`;
   const blob=new Blob([html],{type:"application/vnd.ms-excel"});
-  downloadURL(URL.createObjectURL(blob),"soc_table.xls");
+  download(URL.createObjectURL(blob),"soc_table.xls");
 };
 
 /* ============================================================
-   LOAD JSON
+   LOAD JSON FILE
    ============================================================ */
-$("#loadJsonBtn").onclick=async()=>{
-  const f=$("#jsonFile").files[0];
-  if(!f) return flash("Select JSON",true);
+document.getElementById("jsonLoadBtn").onclick=async()=>{
+  const f=document.getElementById("jsonFile").files[0];
+  if(!f){ flash("Select JSON file",true); return; }
   try{
     const txt=await readText(f);
     rows=parseCVRF(JSON.parse(txt));
     filtered=rows.slice();
     buildHeader();
     render();
-    flash("JSON loaded");
+    flash("JSON Loaded");
   }catch(e){ flash("JSON error: "+e,true); }
 };
 
 /* ============================================================
-   PGP → decrypt → unzip/JSON → load CVRF
+   DECRYPT PGP & LOAD CVRF
    ============================================================ */
-$("#decryptBtn").onclick=async()=>{
-  const f=$("#pgpFile").files[0];
-  const pw=$("#pgpPass").value.trim();
-  if(!f) return flash("Select PGP",true);
-  if(!pw) return flash("Enter password",true);
+document.getElementById("pgpLoadBtn").onclick=async()=>{
+  const f=document.getElementById("pgpFile").files[0];
+  const pw=document.getElementById("pgpPass").value;
+
+  if(!f){ flash("Select PGP file",true); return; }
+  if(!pw){ flash("Enter password",true); return; }
 
   try{
     const text=await readText(f);
@@ -383,26 +395,30 @@ $("#decryptBtn").onclick=async()=>{
       format:"binary"
     });
 
-    const u8 = data instanceof Uint8Array?data:new Uint8Array(data);
-    const isZip = u8[0]===0x50 && u8[1]===0x4B; // PK ZIP signature
+    const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+    const isZip = u8[0]===0x50 && u8[1]===0x4B;
 
     let jsonText;
     if(isZip){
       const zip=await JSZip.loadAsync(u8);
-      let chosen="";
-      zip.forEach((p,e)=>{ if(!e.dir && p.toLowerCase().endsWith(".json")) {
-        if(!chosen||/cvrf/i.test(p)) chosen=p;
-      }});
-      if(!chosen) throw new Error("No JSON found in ZIP");
-      jsonText = await zip.file(chosen).async("string");
+      let target="";
+      zip.forEach((path,entry)=>{
+        if(!entry.dir && path.toLowerCase().endsWith(".json")){
+          if(!target||/cvrf/i.test(path)) target=path;
+        }
+      });
+      if(!target) throw new Error("No JSON found in decrypted ZIP");
+      jsonText=await zip.file(target).async("string");
     } else {
-      jsonText = new TextDecoder().decode(u8);
+      jsonText=new TextDecoder().decode(u8);
     }
 
     rows=parseCVRF(JSON.parse(jsonText));
     filtered=rows.slice();
     buildHeader();
     render();
+
     flash("PGP decrypted & loaded");
 
   }catch(e){
@@ -411,10 +427,10 @@ $("#decryptBtn").onclick=async()=>{
   }
 };
 
-/* Filters */
-$("#search").oninput=applyFilters;
-$("#sev").onchange=applyFilters;
-$("#auto").onchange=applyFilters;
+/* FILTER EVENTS */
+document.getElementById("search").oninput=applyFilters;
+document.getElementById("sev").onchange=applyFilters;
+document.getElementById("auto").onchange=applyFilters;
 </script>
 
 </body>
