@@ -1,431 +1,125 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>SOC CVRF Dashboard (PGP + Light/Dark)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// ===============================
+// Clean CVRF → Parsed Vulnerabilities
+// ===============================
 
-<!-- REQUIRED: Correct external script tags -->
-https://cdn.jsdelivr.net/npm/openpgp@5.10.1/dist/openpgp.min.js</script>
-https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js</script>
-
-<style>
-  :root {
-    --bg:#111; --fg:#eee; --panel:#000; --border:#333;
-    --input-bg:#222; --input-fg:#eee; --input-border:#555;
-    --thead:#222; --hover:#1b1b1b; --muted:#bbb;
-
-    --crit-bg:#8B0000; --crit-fg:#fff;
-    --high-bg:#C0392B; --high-fg:#fff;
-    --med-bg:#F39C12; --med-fg:#111;
-    --low-bg:#2ECC71; --low-fg:#111;
-    --unk-bg:#777; --unk-fg:#111;
-  }
-
-  [data-theme="light"] {
-    --bg:#f8f8f8; --fg:#111; --panel:#fff; --border:#ccc;
-    --input-bg:#fff; --input-fg:#111; --input-border:#aaa;
-    --thead:#f0f0f0; --hover:#fafafa; --muted:#444;
-
-    --crit-bg:#b30000; --crit-fg:#fff;
-    --high-bg:#e74c3c; --high-fg:#fff;
-    --med-bg:#f39c12; --med-fg:#111;
-    --low-bg:#2ecc71; --low-fg:#111;
-    --unk-bg:#95a5a6; --unk-fg:#000;
-  }
-
-  body {
-    background: var(--bg); color: var(--fg);
-    font-family: system-ui, sans-serif; margin:20px;
-  }
-
-  .toolbar { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:14px; }
-  .toolbar input,.toolbar select,.toolbar button {
-    background:var(--input-bg); color:var(--input-fg);
-    border:1px solid var(--input-border);
-    padding:6px 10px; border-radius:5px;
-  }
-
-  input[type="search"] { width:300px; }
-
-  .table-wrap {
-    border:1px solid var(--border); border-radius:6px;
-    overflow:auto; background:var(--panel);
-  }
-
-  table { width:100%; border-collapse:collapse; }
-  th,td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; }
-  th { background:var(--thead); cursor:pointer; position:sticky; top:0; }
-  tr:hover { background:var(--hover); }
-
-  .badge { padding:2px 8px; border-radius:10px; }
-  .CRITICAL{background:var(--crit-bg);color:var(--crit-fg);}
-  .HIGH{background:var(--high-bg);color:var(--high-fg);}
-  .MEDIUM{background:var(--med-bg);color:var(--med-fg);}
-  .LOW{background:var(--low-bg);color:var(--low-fg);}
-  .UNKNOWN{background:var(--unk-bg);color:var(--unk-fg);}
-
-  #msg { margin-left:10px; }
-  #stats { margin-top:10px; font-size:13px; color:var(--muted); }
-</style>
-</head>
-<body>
-
-<h1>SOC CVRF Dashboard</h1>
-
-<div class="toolbar">
-
-  <!-- Theme -->
-  <button id="themeBtn">🌓 Theme</button>
-
-  <!-- JSON -->
-  <input id="jsonFile" type="file" accept=".json">
-  <button id="loadJsonBtn">Load JSON</button>
-
-  <!-- PGP -->
-  <input id="pgpFile" type="file" accept=".pgp,.gpg"/>
-  <input id="pgpPass" type="password" placeholder="PGP password…"/>
-  <button id="loadPGPBtn">Decrypt & Load PGP</button>
-
-  <!-- Filters -->
-  <input id="search" type="search" placeholder="Filter…">
-
-  <select id="sev">
-    <option value="">Severity</option>
-    <option>CRITICAL</option><option>HIGH</option>
-    <option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
-  </select>
-
-  <select id="auto">
-    <option value="">Automatable</option>
-    <option>Yes</option><option>No</option><option>Automatable</option>
-  </select>
-
-  <!-- Export -->
-  <button id="csvBtn" disabled>CSV</button>
-  <button id="xlsBtn" disabled>Excel</button>
-
-  <span id="msg"></span>
-</div>
-
-<div class="table-wrap">
-  <table id="grid">
-    <thead></thead><tbody></tbody>
-  </table>
-</div>
-
-<div id="stats"></div>
-
-<script>
-/* ============================================================
-   THEME SYSTEM
-   ============================================================ */
-function setTheme(mode){
-  localStorage.setItem("theme", mode);
-  if(mode==="system") document.documentElement.removeAttribute("data-theme");
-  else document.documentElement.setAttribute("data-theme", mode);
-}
-(function(){
-  const saved = localStorage.getItem("theme") || "system";
-  setTheme(saved);
-
-  document.getElementById("themeBtn").onclick = ()=>{
-    const cur = localStorage.getItem("theme") || "system";
-    const nxt = cur==="system" ? "light" : cur==="light" ? "dark" : "system";
-    setTheme(nxt);
-  };
-})();
-
-/* ============================================================
-   UTILS
-   ============================================================ */
-function flash(msg, warn=false){
-  const m=document.getElementById("msg");
-  m.textContent=msg;
-  m.style.color = warn ? "#E67E22" : "var(--muted)";
-  setTimeout(()=>m.textContent="",3200);
+function safeStr(v) {
+  return v == null ? "" : (typeof v === "string" ? v : JSON.stringify(v));
 }
 
-function safeStr(v){ return v==null ? "" : (typeof v==="string"?v:JSON.stringify(v)); }
-function firstText(...vals){
-  for(const v of vals){ const s=safeStr(v).trim(); if(s) return s; }
+function firstText(...vals) {
+  for (const v of vals) {
+    const s = safeStr(v).trim();
+    if (s) return s;
+  }
   return "";
 }
 
-async function readText(file){
-  return new Promise((resolve,reject)=>{
-    const r=new FileReader();
-    r.onload=()=>resolve(r.result);
-    r.onerror=reject;
-    r.readAsText(file);
-  });
-}
+function pickCVSS(scoreSets) {
+  if (!Array.isArray(scoreSets) || !scoreSets.length) return null;
 
-async function readBytes(file){
-  return new Uint8Array(await file.arrayBuffer());
-}
+  const ranked = scoreSets.map(s => {
+    const ver = safeStr(s.Version || s.version);
+    let base = parseFloat(s.BaseScore || s.baseScore);
+    if (isNaN(base)) base = null;
+    const pri = { "3.1": 3, "3.0": 2, "2.0": 1 }[ver] || 0;
+    return { pri, base };
+  }).sort((a, b) => (b.pri - a.pri) || ((b.base ?? 0) - (a.base ?? 0)));
 
-/* ============================================================
-   CVSS / Severity
-   ============================================================ */
-function pickCVSS(sets){
-  if(!Array.isArray(sets)||!sets.length) return null;
-  const ranked=sets.map(s=>{
-    let base=parseFloat(s.BaseScore||s.baseScore);
-    if(isNaN(base)) base=null;
-    const ver=safeStr(s.Version||s.version);
-    const pri={"3.1":3,"3.0":2,"2.0":1}[ver]||0;
-    return {pri,base};
-  }).sort((a,b)=>(b.pri-a.pri)||((b.base??0)-(a.base??0)));
   return ranked[0].base;
 }
-function severity(score){
-  if(score==null||isNaN(score)) return "UNKNOWN";
-  if(score>=9) return "CRITICAL";
-  if(score>=7) return "HIGH";
-  if(score>=4) return "MEDIUM";
-  if(score>=0) return "LOW";
+
+function severity(score) {
+  if (score == null || isNaN(score)) return "UNKNOWN";
+  if (score >= 9.0) return "CRITICAL";
+  if (score >= 7.0) return "HIGH";
+  if (score >= 4.0) return "MEDIUM";
+  if (score >= 0.0) return "LOW";
   return "UNKNOWN";
 }
 
-/* ============================================================
-   PARSE CVRF
-   ============================================================ */
-function extract(v){
-  const cve = Array.isArray(v.CVE) ? v.CVEv.CVE || "";
+function extractVuln(v) {
 
-  let desc=safeStr(v.Title?.Value);
-  if(!desc){
-    for(const n of (v.Notes||[])){
-      const t=safeStr(n.Title).toLowerCase();
-      if(["summary","description","title"].includes(t)){
-        desc = firstText(n.Value,n.Text);
+  // --- CVE ---
+  const cve = Array.isArray(v.CVE) ? v.CVE[0] : v.CVE || "";
+
+  // --- Description ---
+  let desc = safeStr(v.Title?.Value);
+  if (!desc) {
+    for (const n of (v.Notes || [])) {
+      const t = safeStr(n.Title).toLowerCase();
+      if (["summary", "description", "title"].includes(t)) {
+        desc = firstText(n.Value, n.Text);
         break;
       }
     }
   }
 
-  const cvss = pickCVSS(v.CVSSScoreSets||[]);
-  const sev  = severity(cvss);
+  // --- CVSS + Severity ---
+  const cvssBase = pickCVSS(v.CVSSScoreSets || []);
+  const sev      = severity(cvssBase);
 
-  let ssvc="";
-  for(const n of (v.Notes||[])){
-    const t=safeStr(n.Title).toLowerCase();
-    if(t.includes("ssvc")){ ssvc=firstText(n.Text,n.Value); break;}
+  // --- SSVC ---
+  let ssvc = "";
+  for (const n of (v.Notes || [])) {
+    const t = safeStr(n.Title).toLowerCase();
+    if (t.includes("ssvc")) {
+      ssvc = firstText(n.Text, n.Value);
+      break;
+    }
   }
 
-  let impact="",autom="";
-  for(const th of (v.Threats||[])){
-    if(!th||typeof th!=="object") continue;
-    const type=safeStr(th.Type).toLowerCase();
-    if(type.includes("impact") && Array.isArray(th.Details)){
-      impact = firstText(...th.Details.map(d=>d?.Value));
+  // --- Impact / Automatable ---
+  let impact = "";
+  let autom  = "";
+
+  for (const th of (v.Threats || [])) {
+    if (!th || typeof th !== "object") continue;
+    const type = safeStr(th.Type).toLowerCase();
+
+    if (type.includes("impact") && Array.isArray(th.Details)) {
+      impact = firstText(...th.Details.map(d => d?.Value));
     }
-    if(type.includes("automatable") && Array.isArray(th.Details)){
-      const raw=firstText(...th.Details.map(d=>d?.Value)).toLowerCase();
-      autom = raw.includes("yes")?"Yes":raw.includes("no")?"No":"Automatable";
+
+    if (type.includes("automatable") && Array.isArray(th.Details)) {
+      const raw = firstText(...th.Details.map(d => d?.Value)).toLowerCase();
+      autom = raw.includes("yes")
+        ? "Yes"
+        : raw.includes("no")
+          ? "No"
+          : "Automatable";
     }
   }
 
   return {
-    "CVE-ID":cve,
-    "Description":desc,
-    "SSVC":ssvc,
-    "CVSS":cvss==null?"":cvss.toFixed(1),
-    "Severity":sev,
-    "Impact":impact,
-    "Automatable":autom,
-    "Internet Exposed":"",
-    "Forensic Triage Required":""
+    "CVE-ID": cve,
+    "Description": desc,
+    "SSVC": ssvc,
+    "CVSS": cvssBase == null ? "" : cvssBase.toFixed(1),
+    "Severity": sev,
+    "Impact": impact,
+    "Automatable": autom,
+
+    // These are kept blank intentionally so your HTML table still has columns
+    "Internet Exposed": "",
+    "Forensic Triage Required": ""
   };
 }
 
-function parseCVRF(json){
-  const vulns=Array.isArray(json?.Vulnerability)
-    ? json.Vulnerability
-    : Array.isArray(json?.Document?.Vulnerability)
-      ? json.Document.Vulnerability
-      : [];
-  return vulns.map(extract).sort((a,b)=>parseFloat(b.CVSS||0)-parseFloat(a.CVSS||0));
+function parseCVRF(json) {
+  const vulns =
+    Array.isArray(json?.Vulnerability)
+      ? json.Vulnerability
+      : Array.isArray(json?.Document?.Vulnerability)
+        ? json.Document.Vulnerability
+        : [];
+
+  return vulns
+    .map(extractVuln)
+    .sort((a, b) => parseFloat(b.CVSS || 0) - parseFloat(a.CVSS || 0));
 }
 
-/* ============================================================
-   TABLE
-   ============================================================ */
-let rows=[], filtered=[];
-let sortCol="CVSS", sortDir=1;
-
-const COLS=[
-  "CVE-ID","Description","SSVC","CVSS","Severity",
-  "Impact","Automatable","Internet Exposed","Forensic Triage Required"
-];
-
-function buildHeader(){
-  const h=document.querySelector("#grid thead");
-  h.innerHTML="";
-  const tr=document.createElement("tr");
-  for(const c of COLS){
-    const th=document.createElement("th");
-    th.textContent=c;
-    th.onclick=()=>{
-      sortDir = (sortCol===c ? -sortDir : 1);
-      sortCol=c; render();
-    };
-    tr.appendChild(th);
-  }
-  h.appendChild(tr);
-}
-
-function applyFilters(){
-  const q=document.getElementById("search").value.toLowerCase();
-  const sev=document.getElementById("sev").value;
-  const auto=document.getElementById("auto").value;
-
-  filtered=rows.filter(r=>{
-    const okSev = !sev || r.Severity===sev;
-    const okAuto= !auto || r.Automatable===auto;
-    const hay=COLS.map(c=>safeStr(r[c]).toLowerCase()).join("\u0000");
-    return okSev && okAuto && (!q || hay.includes(q));
-  });
-
-  render();
-}
-
-function render(){
-  filtered.sort((a,b)=>{
-    const av=a[sortCol]||"", bv=b[sortCol]||"";
-    if(sortCol==="CVSS") return((parseFloat(av)||0)-(parseFloat(bv)||0))*sortDir;
-    return av.localeCompare(bv)*sortDir;
-  });
-
-  const body=document.querySelector("#grid tbody");
-  body.innerHTML="";
-  for(const r of filtered){
-    const tr=document.createElement("tr");
-    for(const c of COLS){
-      const td=document.createElement("td");
-      if(c==="Severity"){
-        td.innerHTML=`<span class="badge ${r[c]}">${r[c]}</span>`;
-      } else td.textContent=r[c]||"";
-      tr.appendChild(td);
-    }
-    body.appendChild(tr);
-  }
-
-  document.getElementById("csvBtn").disabled=(filtered.length===0);
-  document.getElementById("xlsBtn").disable=(filtered.length===0);
-
-  document.getElementById("stats").textContent=
-    `Showing ${filtered.length} of ${rows.length}`;
-}
-
-/* ============================================================
-   EXPORT
-   ============================================================ */
-function toCSV(data){
-  const esc=v=>{
-    const s=String(v??"");
-    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
-  };
-  const lines=[COLS.join(",")];
-  for(const r of data) lines.push(COLS.map(c=>esc(r[c])).join(","));
-  return lines.join("\n");
-}
-
-function download(url,name){
-  const a=document.createElement("a");
-  a.href=url; a.download=name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),2000);
-}
-
-document.getElementById("csvBtn").onclick=()=>{
-  const blob=new Blob([toCSV(filtered)],{type:"text/csv"});
-  download(URL.createObjectURL(blob),"soc_table.csv");
-};
-
-document.getElementById("xlsBtn").onclick=()=>{
-  const head="<tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
-  const body=filtered.map(r=>"<tr>"+
-    COLS.map(c=>`<td>${r[c]||""}</td>`).join("")+"</tr>").join("");
-  const html=`<!doctype html><html><body><table>${head}${body}</table></body></html>`;
-  const blob=new Blob([html],{type:"application/vnd.ms-excel"});
-  download(URL.createObjectURL(blob),"soc_table.xls");
-};
-
-/* ============================================================
-   LOAD JSON
-   ============================================================ */
-document.getElementById("loadJsonBtn").onclick=async()=>{
-  const f=document.getElementById("jsonFile").files[0];
-  if(!f) return flash("Select JSON",true);
-  try{
-    const txt=await readText(f);
-    rows=parseCVRF(JSON.parse(txt));
-    filtered=rows.slice();
-    buildHeader(); render();
-    flash("JSON loaded");
-  }catch(e){ flash("JSON error: "+e,true); }
-};
-
-/* ============================================================
-   LOAD PGP
-   ============================================================ */
-document.getElementById("loadPGPBtn").onclick=async()=>{
-  const f=document.getElementById("pgpFile").files[0];
-  const pw=document.getElementById("pgpPass").value;
-
-  if(!f) return flash("Select PGP file",true);
-  if(!pw) return flash("Password required",true);
-
-  try{
-    const text=await readText(f);
-    const bytes=await readBytes(f);
-
-    let message;
-    if(text.startsWith("-----BEGIN PGP"))
-      message=await openpgp.readMessage({armoredMessage:text});
-    else
-      message=await openpgp.readMessage({binaryMessage:bytes});
-
-    const {data}=await openpgp.decrypt({
-      message,passwords:[pw],format:"binary"
-    });
-
-    const u8=data instanceof Uint8Array?data:new Uint8Array(data);
-    const isZip=u8[0]===0x50 && u8[1]===0x4B;
-
-    let jsonText;
-    if(isZip){
-      const zip=await JSZip.loadAsync(u8);
-      let found="";
-      zip.forEach((p,e)=>{ 
-        if(!e.dir && p.toLowerCase().endsWith(".json")){
-          if(!found||/cvrf/i.test(p)) found=p;
-        }
-      });
-      if(!found) throw new Error("No JSON found in ZIP");
-      jsonText=await zip.file(found).async("string");
-    } else {
-      jsonText=new TextDecoder().decode(u8);
-    }
-
-    rows=parseCVRF(JSON.parse(jsonText));
-    filtered=rows.slice();
-    buildHeader(); render();
-    flash("PGP decrypted");
-  }
-  catch(e){
-    console.error(e);
-    flash("Decrypt failed: "+e,true);
-  }
-};
-
-/* FILTERS */
-document.getElementById("search").oninput=applyFilters;
-document.getElementById("sev").onchange=applyFilters;
-document.getElementById("auto").onchange=applyFilters;
-</script>
-
-</body>
-</html>
+// ===============================
+// HOW TO USE:
+// const parsed = parseCVRF(yourJsonObject);
+// console.log(parsed);  // => array of vulnerabilities with all metrics
+// ===============================
