@@ -4,107 +4,82 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Microsoft Patch Tuesday Pre-Release Dashboard</title>
-
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #ffffff;
-    --fg: #111;
-    --surface: #fafafa;
-    --hover: #f6faff;
-    --border: #ddd;
-    --muted: #666;
-
-    --sev-critical: #b00020;
-    --sev-high:     #d93025;
-    --sev-medium:   #f9ab00;
-    --sev-low:      #34a853;
-    --sev-unknown:  #9aa0a6;
+    --bg: #ffffff; --fg: #111; --surface: #fafafa; --hover: #f6faff;
+    --border: #ddd; --muted: #666;
+    --sev-critical: #b00020; --sev-high: #d93025; --sev-medium: #f9ab00;
+    --sev-low: #34a853; --sev-unknown: #9aa0a6;
   }
-
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0b0f14;
-      --fg: #e8eaed;
-      --surface: #11161c;
-      --hover: #18202a;
-      --border: #2b2f36;
-      --muted: #9aa0a6;
+      --bg: #0b0f14; --fg: #e8eaed; --surface: #11161c; --hover: #18202a;
+      --border: #2b2f36; --muted: #9aa0a6;
     }
   }
-
   html[data-theme="light"] {
     --bg:#fff; --fg:#111; --surface:#fafafa; --hover:#f6faff; --border:#ddd; --muted:#666;
   }
   html[data-theme="dark"] {
     --bg:#0b0f14; --fg:#e8eaed; --surface:#11161c; --hover:#18202a; --border:#2b2f36; --muted:#9aa0a6;
   }
-
   body { font-family:system-ui,Arial; margin:16px; background:var(--bg); color:var(--fg); }
   h1 { font-size:20px; margin:0 0 12px; }
-
   .grid { display:grid; gap:8px; }
   .inputs { display:grid; gap:8px; grid-template-columns:repeat(2,minmax(220px,1fr)); }
-
   .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-
   input, select, button {
-    font:inherit;
-    padding:6px 8px;
-    background:var(--surface);
-    color:var(--fg);
-    border:1px solid var(--border);
-    border-radius:4px;
+    font:inherit; padding:6px 8px; background:var(--surface); color:var(--fg);
+    border:1px solid var(--border); border-radius:4px;
   }
-
-  .badge {
-    padding:2px 8px;
-    border-radius:10px;
-    font-size:12px;
-  }
+  .badge { padding:2px 8px; border-radius:10px; font-size:12px; }
   .CRITICAL { background:var(--sev-critical); color:#fff; }
-  .HIGH     { background:var(--sev-high); color:#fff; }
-  .MEDIUM   { background:var(--sev-medium); color:#111; }
-  .LOW      { background:var(--sev-low); color:#111; }
-  .UNKNOWN  { background:var(--sev-unknown); color:#111; }
-
+  .HIGH { background:var(--sev-high); color:#fff; }
+  .MEDIUM { background:var(--sev-medium); color:#111; }
+  .LOW { background:var(--sev-low); color:#111; }
+  .UNKNOWN { background:var(--sev-unknown); color:#111; }
+  .TOTAL { background:#7b1fa2; color:#fff; }
+  .PARTIAL { background:#5c6bc0; color:#fff; }
+  .YES { background:#1565c0; color:#fff; }
+  .NO { background:#546e7a; color:#fff; }
+  .VARIES { background:#00897b; color:#fff; }
+  .NONE { background:#607d8b; color:#fff; }
+  .POC { background:#f9a825; color:#111; }
+  .ACTIVE { background:#c62828; color:#fff; }
+  .TRACK { background:#2e7d32; color:#fff; }
+  .ATTEND { background:#ef6c00; color:#fff; }
+  .ACT { background:#c62828; color:#fff; }
   .table-wrap { margin-top:10px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; }
   th { position:sticky; top:0; background:var(--surface); cursor:pointer; }
   tr:hover { background:var(--hover); }
-
   .muted { color:var(--muted); }
 </style>
 </head>
-
 <body>
 <h1>Microsoft Patch Tuesday Pre-Release Dashboard</h1>
-
 <div class="grid">
-
   <div class="inputs">
     <label>
       <strong>CVRF JSON</strong><br/>
       <input id="cvrf" type="file" accept=".json" />
     </label>
-
     <label>
       <strong>Enrichment CSV (optional)</strong><br/>
       <input id="enrich" type="file" accept=".csv" />
       <div class="muted" style="margin-top:4px">
-        Columns: CVE-ID, Internet Exposed, Forensic Triage Required
+        Columns: CVE-ID, Internet Exposed, Forensic Triage Required, Exploitation
       </div>
     </label>
   </div>
-
   <div class="controls">
     <button id="loadBtn">Load</button>
     <button id="exportCsvBtn" disabled>Export CSV</button>
     <button id="exportXlsBtn" disabled>Export Excel</button>
     <button id="exportJsonBtn" disabled>Export JSON</button>
     <button id="copyBtn" disabled>Copy rows</button>
-
     <label>Theme:
       <select id="theme">
         <option value="auto">Auto</option>
@@ -112,100 +87,92 @@
         <option value="dark">Dark</option>
       </select>
     </label>
-
     <span id="msg" class="muted"></span>
   </div>
-
   <div class="controls">
     <input id="q" type="search" placeholder="Filter (CVE, Description, SSVC…)" />
-
     <label>Severity:
       <select id="sev">
         <option value="">All</option>
         <option>CRITICAL</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option><option>UNKNOWN</option>
       </select>
     </label>
-
+    <label>Impact:
+      <select id="imp">
+        <option value="">All</option>
+        <option>Total</option><option>Partial</option><option>Unknown</option>
+      </select>
+    </label>
     <label>Automatable:
       <select id="auto">
         <option value="">All</option>
-        <option>Yes</option><option>No</option><option>Automatable</option><option>Unknown</option>
+        <option>Yes</option><option>No</option><option>Unknown</option>
       </select>
     </label>
-
+    <label>Exploitation:
+      <select id="expl">
+        <option value="">All</option>
+        <option>none</option><option>poc</option><option>active</option>
+      </select>
+    </label>
     <label>Internet Exposed:
       <select id="iex">
         <option value="">All</option>
         <option>Yes</option><option>No</option><option>Varies</option><option>Unknown</option>
       </select>
     </label>
-
     <label>Forensic Triage:
       <select id="tri">
         <option value="">All</option>
         <option>Yes</option><option>No</option><option>Unknown</option>
       </select>
     </label>
+    <label>SSVC:
+      <select id="ssvc">
+        <option value="">All</option>
+        <option>Track</option>
+        <option>Track*</option>
+        <option>Attend</option>
+        <option>Act</option>
+      </select>
+    </label>
   </div>
-
   <div class="table-wrap">
-    <table id="grid">
-      <thead></thead>
-      <tbody></tbody>
-    </table>
+    <table id="grid"><thead></thead><tbody></tbody></table>
   </div>
-
   <div class="muted" id="stats"></div>
-
 </div>
-
 <script>
-/* -------- Theme -------- */
 (function() {
   const sel = document.getElementById("theme");
   const saved = localStorage.getItem("theme") || "auto";
   sel.value = saved;
   applyTheme(saved);
-  sel.onchange = () => {
-    localStorage.setItem("theme", sel.value);
-    applyTheme(sel.value);
-  };
+  sel.onchange = () => { localStorage.setItem("theme", sel.value); applyTheme(sel.value); };
   function applyTheme(t) {
     if (t === "auto") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", t);
   }
 })();
 
-/* -------- Columns (all KEV + Due + Added removed) -------- */
 const COLS = [
-  "CVE-ID","Description","SSVC","CVSS","Severity","Impact",
+  "CVE-ID","Description","SSVC","Exploitation","CVSS","Severity","Impact",
   "Automatable","Internet Exposed","Forensic Triage Required"
 ];
-
-let rows = [];
-let filtered = [];
-let sortCol = "CVSS";
-let sortDir = -1;
-
-/* DOM refs */
+let rows = [], filtered = [], sortCol = "CVSS", sortDir = -1;
 const $ = s => document.querySelector(s);
-const $head = $("#grid thead");
-const $body = $("#grid tbody");
+const $head = $("#grid thead"), $body = $("#grid tbody");
 
-/* Events */
 $("#loadBtn").onclick = loadFiles;
-$("#q").oninput = applyFilters;
-$("#sev").onchange = applyFilters;
-$("#auto").onchange = applyFilters;
-$("#iex").onchange = applyFilters;
-$("#tri").onchange = applyFilters;
-
+["#q","#sev","#imp","#auto","#expl","#iex","#tri","#ssvc"].forEach(id => {
+  const el = $(id);
+  el.oninput = el.onchange = applyFilters;
+});
 $("#exportCsvBtn").onclick = () => dlCSV(filtered);
 $("#exportJsonBtn").onclick = () => dlJSON(filtered);
 $("#exportXlsBtn").onclick = () => dlXLS(filtered);
 $("#copyBtn").onclick = () => navigator.clipboard.writeText(toCSV(filtered));
 
-/* ---- Utility ---- */
 function readText(f) {
   return new Promise(res => {
     if (!f) return res(null);
@@ -214,210 +181,279 @@ function readText(f) {
     r.readAsText(f);
   });
 }
-
 function parseCSV(txt) {
   if (!txt) return [];
-  const lines = txt.split(/\r?\n/).filter(x=>x);
-  const head = lines[0].split(",").map(h=>h.trim());
+  const lines = txt.split(/\r?\n/).filter(x => x.trim());
+  const split = line => {
+    const out = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { if (q && line[i+1] === '"') { cur += '"'; i++; } else q = !q; }
+      else if (ch === "," && !q) { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur); return out.map(s => s.trim());
+  };
+  const head = split(lines[0]);
   return lines.slice(1).map(line => {
-    const vals = line.split(",");
-    const o = {};
-    head.forEach((h,i)=>o[h]=vals[i]?.trim()||"");
+    const vals = split(line), o = {};
+    head.forEach((h, i) => o[h] = vals[i] || "");
     return o;
   });
 }
-
-function pickCVSS(sets) {
-  if (!Array.isArray(sets) || !sets.length) return {base:""};
-  const ranked = sets.map(s=>{
-    const ver = (s.Version || "").trim();
-    const base = parseFloat(s.BaseScore)||0;
-    const pri = {"3.1":3,"3.0":2,"2.0":1}[ver]||0;
-    return {ver,base,pri};
-  }).sort((a,b)=>(b.pri-a.pri)||(b.base-a.base));
-  return {base: ranked[0].base.toFixed(1) };
+function parseVector(vec) {
+  const m = {};
+  if (!vec) return m;
+  String(vec).split("/").forEach(part => {
+    const i = part.indexOf(":");
+    if (i > 0) m[part.slice(0, i).replace(/^CVSS:\d+(\.\d+)?$/, "").trim()] = part.slice(i+1).trim();
+  });
+  return m;
 }
-
+function pickCVSS(sets) {
+  if (!Array.isArray(sets) || !sets.length) return { base: "", vector: "", metrics: {} };
+  const ranked = sets.map(s => {
+    const ver = String(s.Version || "").trim();
+    const base = parseFloat(s.BaseScore) || 0;
+    const vector = s.Vector || s.VectorString || "";
+    const pri = { "4.0":4,"3.1":3,"3.0":2,"2.0":1 }[ver] || (String(vector).includes("4.0")?4:String(vector).includes("3.1")?3:0);
+    return { ver, base, pri, vector };
+  }).sort((a,b)=>(b.pri-a.pri)||(b.base-a.base));
+  const top = ranked[0];
+  return { base: top.base ? top.base.toFixed(1) : "", vector: top.vector, metrics: parseVector(top.vector) };
+}
 function severity(score) {
   score = parseFloat(score);
   if (isNaN(score)) return "UNKNOWN";
-  if (score>=9) return "CRITICAL";
-  if (score>=7) return "HIGH";
-  if (score>=4) return "MEDIUM";
+  if (score >= 9) return "CRITICAL";
+  if (score >= 7) return "HIGH";
+  if (score >= 4) return "MEDIUM";
   return "LOW";
 }
-
-/* ---- Parse CVRF ---- */
+function collectText(v) {
+  const bits = [v.Title?.Value || v.Title || ""];
+  (v.Notes || []).forEach(n => bits.push(n.Value || n.Title || ""));
+  (v.Threats || []).forEach(t => bits.push(t.Description?.Value || t.Description || t.Type || ""));
+  const cwe = v.CWE || v.Weaknesses || [];
+  (Array.isArray(cwe) ? cwe : [cwe]).forEach(w => bits.push(w?.Value || w?.Description || w || ""));
+  return bits.join(" ").toLowerCase();
+}
+function parseExploitStatus(v) {
+  const threats = v.Threats || [];
+  const blobs = [];
+  threats.forEach(t => {
+    const typ = t.Type;
+    const desc = String(t.Description?.Value || t.Description || "");
+    if (typ === 1 || typ === "1" || /exploit/i.test(String(typ)) || /Publicly Disclosed:/i.test(desc) || /Exploited:/i.test(desc)) {
+      blobs.push(desc);
+    }
+  });
+  (v.Notes || []).forEach(n => blobs.push(String(n.Value || "")));
+  const raw = blobs.join("; ");
+  const kv = {};
+  raw.split(/[;\n]/).forEach(part => {
+    const i = part.indexOf(":");
+    if (i > 0) kv[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim().toLowerCase();
+  });
+  const exploited = kv.exploited === "yes" || /exploitation detected/i.test(raw);
+  const disclosed = kv["publicly disclosed"] === "yes";
+  if (exploited) return "active";
+  if (disclosed) return "poc";
+  if (/\b(exploited in the wild|zero-?day|in[- ]the[- ]wild|exploitation detected)\b/i.test(raw)) return "active";
+  if (/\b(proof[- ]of[- ]concept|\bpoc\b|publicly disclosed)\b/i.test(raw) && /:\s*yes/i.test(raw)) return "poc";
+  return "none";
+}
+function deriveImpact(metrics, text) {
+  const C = metrics.C || metrics.VC || "";
+  const I = metrics.I || metrics.VI || "";
+  const totalKw = /\b(remote code execution|\brce\b|code execution|arbitrary code|command injection|command execution|privilege escalation|elevation of privilege|\beop\b|elevate privileges|take over|takeover|install (and )?run arbitrary|system compromise)\b/i;
+  const partialKw = /\b(information disclosure|info(rmation)? leak|information exposure|spoofing|denial of service|\bdos\b|read-only|disclose)\b/i;
+  if (C === "H" && I === "H") return "Total";
+  if (totalKw.test(text)) return "Total";
+  if (partialKw.test(text)) return "Partial";
+  if (C === "H" || I === "H") return "Total";
+  if (C || I || metrics.A || metrics.VA) return "Partial";
+  return "Unknown";
+}
+function deriveAutomatable(metrics) {
+  const AV = metrics.AV || "", AC = metrics.AC || "";
+  const PR = metrics.PR || metrics.Au || "", UI = metrics.UI || "";
+  if (!AV && !AC && !PR && !UI) return "Unknown";
+  return (AV === "N" && (!AC || AC === "L") && (PR === "N" || PR === "NONE" || PR === "") && (UI === "N" || UI === "NONE" || UI === "")) ? "Yes" : "No";
+}
+function deriveInternetExposed(metrics) {
+  const AV = metrics.AV || "";
+  if (AV === "N") return "Yes";
+  if (AV === "A") return "Varies";
+  if (AV === "L" || AV === "P") return "No";
+  return "Unknown";
+}
+function cisaDecision(exploitation, automatable, impact) {
+  const E = (exploitation || "none").toLowerCase();
+  const A = (automatable || "").toLowerCase() === "yes" ? "yes" : "no";
+  const T = (impact || "").toLowerCase() === "total" ? "total" : "partial";
+  const M = "low";
+  const table = {
+    "none|no|partial|low": "Track",
+    "none|no|total|low": "Track",
+    "none|yes|partial|low": "Track",
+    "none|yes|total|low": "Track",
+    "poc|no|partial|low": "Track",
+    "poc|no|total|low": "Track",
+    "poc|yes|partial|low": "Track",
+    "poc|yes|total|low": "Track*",
+    "active|no|partial|low": "Track",
+    "active|no|total|low": "Attend",
+    "active|yes|partial|low": "Attend",
+    "active|yes|total|low": "Attend"
+  };
+  return table[`${E}|${A}|${T}|${M}`] || "Track";
+}
+function deriveSSVC(expl, impact, automatable) {
+  const decision = cisaDecision(expl, automatable, impact);
+  const t = impact === "Total" ? "total" : impact === "Partial" ? "partial" : "?";
+  const a = automatable === "Yes" ? "yes" : automatable === "No" ? "no" : "?";
+  return `${decision} | E:${expl} / A:${a} / T:${t} / M:low`;
+}
 function parseCVRF(json) {
   const vulns = json.Vulnerability || json.Document?.Vulnerability || [];
   return vulns.map(v => {
-    const cve = Array.isArray(v.CVE) ? v.CVE[0] : v.CVE || "";
-    const desc = v.Title?.Value || "";
-    const cv = pickCVSS(v.CVSSScoreSets||[]);
+    const cve = Array.isArray(v.CVE) ? v.CVE[0] : (v.CVE || "");
+    const desc = v.Title?.Value || v.Title || "";
+    const cv = pickCVSS(v.CVSSScoreSets || []);
+    const text = collectText(v);
+    const impact = deriveImpact(cv.metrics, text);
+    const automatable = deriveAutomatable(cv.metrics);
+    const expl = parseExploitStatus(v);
     return {
       "CVE-ID": cve,
       "Description": desc,
-      "SSVC": "",
+      "SSVC": deriveSSVC(expl, impact, automatable),
+      "Exploitation": expl,
       "CVSS": cv.base || "",
       "Severity": severity(cv.base),
-      "Impact": "",
-      "Automatable": "",
-      "Internet Exposed": "",
-      "Forensic Triage Required": ""
+      "Impact": impact,
+      "Automatable": automatable,
+      "Internet Exposed": deriveInternetExposed(cv.metrics),
+      "Forensic Triage Required": "Unknown",
+      _ssvcDecision: cisaDecision(expl, automatable, impact)
     };
   });
 }
-
-/* ---- Merge Enrichment ---- */
 function mergeEnrichment(base, recs) {
   const map = new Map();
   for (const r of recs) {
     const cve = r["CVE-ID"];
     if (!cve) continue;
-    map.set(cve, {
-      "Internet Exposed": r["Internet Exposed"] || "",
-      "Forensic Triage Required": r["Forensic Triage Required"] || ""
-    });
+    map.set(cve, r);
   }
-  base.forEach(b=>{
+  base.forEach(b => {
     const m = map.get(b["CVE-ID"]);
-    if (m) Object.assign(b,m);
+    if (!m) return;
+    if (m["Internet Exposed"]) b["Internet Exposed"] = m["Internet Exposed"];
+    if (m["Forensic Triage Required"]) b["Forensic Triage Required"] = m["Forensic Triage Required"];
+    if (m.Exploitation) {
+      const e = String(m.Exploitation).toLowerCase();
+      b.Exploitation = e === "yes" || e === "active" ? "active" : e === "poc" || e === "public" ? "poc" : e;
+      b._ssvcDecision = cisaDecision(b.Exploitation, b.Automatable, b.Impact);
+      b.SSVC = deriveSSVC(b.Exploitation, b.Impact, b.Automatable);
+    }
   });
   return base;
 }
-
-/* ---- Build Table ---- */
 function buildHeader() {
   $head.innerHTML = "";
   const tr = document.createElement("tr");
-  COLS.forEach(c=>{
+  COLS.forEach(c => {
     const th = document.createElement("th");
     th.textContent = c;
-    th.onclick = ()=>{
-      sortDir = (sortCol===c ? -sortDir : 1);
-      sortCol = c;
-      render();
-    };
+    th.onclick = () => { sortDir = sortCol === c ? -sortDir : 1; sortCol = c; render(); };
     tr.appendChild(th);
   });
   $head.appendChild(tr);
 }
-
 function applyFilters() {
   const q = $("#q").value.toLowerCase();
-  const sev = $("#sev").value;
-  const auto = $("#auto").value;
-  const ie = $("#iex").value;
-  const tri = $("#tri").value;
-
-  filtered = rows.filter(r=>{
-    if (sev && r.Severity!==sev) return false;
-    if (auto && r.Automatable!==auto) return false;
-    if (ie && r["Internet Exposed"]!==ie) return false;
-    if (tri && r["Forensic Triage Required"]!==tri) return false;
-
+  const sev = $("#sev").value, imp = $("#imp").value, auto = $("#auto").value;
+  const expl = $("#expl").value, ie = $("#iex").value, tri = $("#tri").value, ssvc = $("#ssvc").value;
+  filtered = rows.filter(r => {
+    if (sev && r.Severity !== sev) return false;
+    if (imp && r.Impact !== imp) return false;
+    if (auto && r.Automatable !== auto) return false;
+    if (expl && r.Exploitation !== expl) return false;
+    if (ie && r["Internet Exposed"] !== ie) return false;
+    if (tri && r["Forensic Triage Required"] !== tri) return false;
+    if (ssvc && r._ssvcDecision !== ssvc) return false;
     if (q) {
-      const hay = COLS.map(c=>(r[c]||"").toLowerCase()).join("\u0000");
+      const hay = COLS.map(c => (r[c] || "").toLowerCase()).join("\u0000");
       if (!hay.includes(q)) return false;
     }
     return true;
   });
-
   render();
 }
-
 function render() {
-  filtered.sort((x,y)=>{
-    if (sortCol==="CVSS") return (parseFloat(x.CVSS||0)-parseFloat(y.CVSS||0))*sortDir;
-    return (x[sortCol]||"").localeCompare(y[sortCol]||"")*sortDir;
+  filtered.sort((x, y) => {
+    if (sortCol === "CVSS") return (parseFloat(x.CVSS || 0) - parseFloat(y.CVSS || 0)) * sortDir;
+    return String(x[sortCol] || "").localeCompare(String(y[sortCol] || "")) * sortDir;
   });
-
-  $body.innerHTML="";
-  filtered.forEach(r=>{
-    const tr=document.createElement("tr");
-    COLS.forEach(c=>{
-      const td=document.createElement("td");
-      if (c==="Severity") {
-        const b=document.createElement("span");
-        b.className="badge "+r[c];
-        b.textContent=r[c];
+  $body.innerHTML = "";
+  filtered.forEach(r => {
+    const tr = document.createElement("tr");
+    COLS.forEach(c => {
+      const td = document.createElement("td");
+      const val = r[c] || "";
+      if (c === "SSVC") {
+        const b = document.createElement("span");
+        b.className = "badge " + (r._ssvcDecision === "Track*" ? "ATTEND" : (r._ssvcDecision || "").toUpperCase());
+        b.textContent = r._ssvcDecision || "";
         td.appendChild(b);
-      } else td.textContent=r[c];
+        td.appendChild(document.createTextNode("  " + val.replace(/^[^|]+\|\s*/, "")));
+      } else if (["Severity","Impact","Automatable","Internet Exposed","Forensic Triage Required","Exploitation"].includes(c) && val) {
+        const b = document.createElement("span");
+        b.className = "badge " + String(val).toUpperCase();
+        b.textContent = val;
+        td.appendChild(b);
+      } else td.textContent = val;
       tr.appendChild(td);
     });
     $body.appendChild(tr);
   });
-
-  $("#stats").textContent=`Showing ${filtered.length} of ${rows.length}`;
-
-  const dis = filtered.length===0;
-  $("#exportCsvBtn").disabled=dis;
-  $("#exportXlsBtn").disabled=dis;
-  $("#exportJsonBtn").disabled=dis;
-  $("#copyBtn").disabled=dis;
+  $("#stats").textContent = `Showing ${filtered.length} of ${rows.length}`;
+  const dis = filtered.length === 0;
+  $("#exportCsvBtn").disabled = $("#exportXlsBtn").disabled = $("#exportJsonBtn").disabled = $("#copyBtn").disabled = dis;
 }
-
-/* ---- Export ---- */
 function toCSV(data) {
-  const esc=v=>{
-    const s=String(v??"");
-    return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;
-  };
-  const lines=[COLS.join(",")];
-  data.forEach(r=>lines.push(COLS.map(c=>esc(r[c])).join(",")));
-  return lines.join("\n");
+  const esc = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  return [COLS.join(",")].concat(data.map(r => COLS.map(c => esc(r[c])).join(","))).join("\n");
 }
-function dlCSV(data) {
-  const blob=new Blob([toCSV(data)],{type:"text/csv"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download="patch_pre_release.csv"; a.click();
+function dl(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }
-function dlJSON(data) {
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download="patch_pre_release.json"; a.click();
-  URL.revokeObjectURL(url);
-}
+function dlCSV(data) { dl("patch_pre_release.csv", new Blob([toCSV(data)], { type: "text/csv" })); }
+function dlJSON(data) { dl("patch_pre_release.json", new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); }
 function dlXLS(data) {
-  let html="<table><tr>"+COLS.map(c=>`<th>${c}</th>`).join("")+"</tr>";
-  data.forEach(r=>{
-    html+="<tr>"+COLS.map(c=>`<td>${r[c]||""}</td>`).join("")+"</tr>";
-  });
-  html+="</table>";
-  const blob=new Blob([html],{type:"application/vnd.ms-excel"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url; a.download="patch_pre_release.xls"; a.click();
-  URL.revokeObjectURL(url);
+  let html = "<table><tr>" + COLS.map(c => `<th>${c}</th>`).join("") + "</tr>";
+  data.forEach(r => { html += "<tr>" + COLS.map(c => `<td>${r[c] || ""}</td>`).join("") + "</tr>"; });
+  dl("patch_pre_release.xls", new Blob([html + "</table>"], { type: "application/vnd.ms-excel" }));
 }
-
-/* ---- Load ---- */
 async function loadFiles() {
   const j = $("#cvrf").files[0];
   if (!j) return alert("Select CVRF JSON");
-
-  const cvrfTxt = await readText(j);
   let json;
-  try { json=JSON.parse(cvrfTxt); }
+  try { json = JSON.parse(await readText(j)); }
   catch { return alert("Invalid JSON"); }
-
   rows = parseCVRF(json);
-
   const e = $("#enrich").files[0];
-  if (e) {
-    const etxt = await readText(e);
-    const recs = parseCSV(etxt);
-    rows = mergeEnrichment(rows,recs);
-  }
-
+  if (e) rows = mergeEnrichment(rows, parseCSV(await readText(e)));
   buildHeader();
   filtered = rows.slice();
   render();
+  const n = rows.filter(r => r.Exploitation === "active").length;
+  $("#msg").textContent = `Exploitation from MSRC Threat Type 1 (Exploited:Yes → active). ${n} marked exploited. Mission/WB=Low.`;
 }
 </script>
-
 </body>
 </html>
