@@ -47,15 +47,24 @@
   .NONE { background:#607d8b; color:#fff; }
   .POC { background:#f9a825; color:#111; }
   .ACTIVE { background:#c62828; color:#fff; }
-  .TRACK { background:#2e7d32; color:#fff; }
-  .ATTEND { background:#ef6c00; color:#fff; }
-  .ACT { background:#c62828; color:#fff; }
   .table-wrap { margin-top:10px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
-  th, td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; }
-  th { position:sticky; top:0; background:var(--surface); cursor:pointer; }
+  th, td { padding:8px; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:top; }
+  th { position:sticky; top:0; background:var(--surface); cursor:pointer; z-index:1; }
   tr:hover { background:var(--hover); }
+  tr.main-row { cursor:pointer; }
+  tr.main-row.open { background:var(--hover); }
+  .cve-link { color:inherit; font-weight:600; text-decoration:underline; }
   .muted { color:var(--muted); }
+  .detail { white-space:normal; }
+  .detail-grid { display:grid; grid-template-columns:180px 1fr; gap:6px 12px; }
+  .detail-grid b { color:var(--muted); font-weight:600; }
+  .detail pre {
+    margin:8px 0 0; padding:10px; overflow:auto; max-height:420px;
+    background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .vector { font-family:ui-monospace,Consolas,monospace; font-size:12px; }
 </style>
 </head>
 <body>
@@ -70,7 +79,7 @@
       <strong>Enrichment CSV (optional)</strong><br/>
       <input id="enrich" type="file" accept=".csv" />
       <div class="muted" style="margin-top:4px">
-        Columns: CVE-ID, Internet Exposed, Forensic Triage Required, Exploitation
+        Columns: CVE-ID, Internet Exposed, Exploitation
       </div>
     </label>
   </div>
@@ -90,7 +99,7 @@
     <span id="msg" class="muted"></span>
   </div>
   <div class="controls">
-    <input id="q" type="search" placeholder="Filter (CVE, Description, SSVC…)" />
+    <input id="q" type="search" placeholder="Filter (CVE, Description, Vector…)" />
     <label>Severity:
       <select id="sev">
         <option value="">All</option>
@@ -121,21 +130,6 @@
         <option>Yes</option><option>No</option><option>Varies</option><option>Unknown</option>
       </select>
     </label>
-    <label>Forensic Triage:
-      <select id="tri">
-        <option value="">All</option>
-        <option>Yes</option><option>No</option><option>Unknown</option>
-      </select>
-    </label>
-    <label>SSVC:
-      <select id="ssvc">
-        <option value="">All</option>
-        <option>Track</option>
-        <option>Track*</option>
-        <option>Attend</option>
-        <option>Act</option>
-      </select>
-    </label>
   </div>
   <div class="table-wrap">
     <table id="grid"><thead></thead><tbody></tbody></table>
@@ -156,15 +150,15 @@
 })();
 
 const COLS = [
-  "CVE-ID","Description","SSVC","Exploitation","CVSS","Severity","Impact",
-  "Automatable","Internet Exposed","Forensic Triage Required"
+  "CVE-ID","Description","CVSS Vector","CVSS","Severity","Impact",
+  "Automatable","Exploitation","Internet Exposed"
 ];
-let rows = [], filtered = [], sortCol = "CVSS", sortDir = -1;
+let rows = [], filtered = [], sortCol = "CVSS", sortDir = -1, openCve = null;
 const $ = s => document.querySelector(s);
 const $head = $("#grid thead"), $body = $("#grid tbody");
 
 $("#loadBtn").onclick = loadFiles;
-["#q","#sev","#imp","#auto","#expl","#iex","#tri","#ssvc"].forEach(id => {
+["#q","#sev","#imp","#auto","#expl","#iex"].forEach(id => {
   const el = $(id);
   el.oninput = el.onchange = applyFilters;
 });
@@ -216,7 +210,8 @@ function pickCVSS(sets) {
     const ver = String(s.Version || "").trim();
     const base = parseFloat(s.BaseScore) || 0;
     const vector = s.Vector || s.VectorString || "";
-    const pri = { "4.0":4,"3.1":3,"3.0":2,"2.0":1 }[ver] || (String(vector).includes("4.0")?4:String(vector).includes("3.1")?3:0);
+    const pri = { "4.0":4,"3.1":3,"3.0":2,"2.0":1 }[ver] ||
+      (String(vector).includes("4.0") ? 4 : String(vector).includes("3.1") ? 3 : 0);
     return { ver, base, pri, vector };
   }).sort((a,b)=>(b.pri-a.pri)||(b.base-a.base));
   const top = ranked[0];
@@ -230,56 +225,26 @@ function severity(score) {
   if (score >= 4) return "MEDIUM";
   return "LOW";
 }
-function collectText(v) {
-  const bits = [v.Title?.Value || v.Title || ""];
-  (v.Notes || []).forEach(n => bits.push(n.Value || n.Title || ""));
-  (v.Threats || []).forEach(t => bits.push(t.Description?.Value || t.Description || t.Type || ""));
-  const cwe = v.CWE || v.Weaknesses || [];
-  (Array.isArray(cwe) ? cwe : [cwe]).forEach(w => bits.push(w?.Value || w?.Description || w || ""));
-  return bits.join(" ").toLowerCase();
-}
-function parseExploitStatus(v) {
-  const threats = v.Threats || [];
-  const blobs = [];
-  threats.forEach(t => {
-    const typ = t.Type;
-    const desc = String(t.Description?.Value || t.Description || "");
-    if (typ === 1 || typ === "1" || /exploit/i.test(String(typ)) || /Publicly Disclosed:/i.test(desc) || /Exploited:/i.test(desc)) {
-      blobs.push(desc);
-    }
-  });
-  (v.Notes || []).forEach(n => blobs.push(String(n.Value || "")));
-  const raw = blobs.join("; ");
-  const kv = {};
-  raw.split(/[;\n]/).forEach(part => {
-    const i = part.indexOf(":");
-    if (i > 0) kv[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim().toLowerCase();
-  });
-  const exploited = kv.exploited === "yes" || /exploitation detected/i.test(raw);
-  const disclosed = kv["publicly disclosed"] === "yes";
-  if (exploited) return "active";
-  if (disclosed) return "poc";
-  if (/\b(exploited in the wild|zero-?day|in[- ]the[- ]wild|exploitation detected)\b/i.test(raw)) return "active";
-  if (/\b(proof[- ]of[- ]concept|\bpoc\b|publicly disclosed)\b/i.test(raw) && /:\s*yes/i.test(raw)) return "poc";
-  return "none";
-}
-function deriveImpact(metrics, text) {
+
+/* Impact from CIA only:
+   C:H AND I:H → Total
+   C:N I:N A:H (DoS) → Partial
+   any other High/Low/None mix → Partial */
+function deriveImpact(metrics) {
   const C = metrics.C || metrics.VC || "";
   const I = metrics.I || metrics.VI || "";
-  const totalKw = /\b(remote code execution|\brce\b|code execution|arbitrary code|command injection|command execution|privilege escalation|elevation of privilege|\beop\b|elevate privileges|take over|takeover|install (and )?run arbitrary|system compromise)\b/i;
-  const partialKw = /\b(information disclosure|info(rmation)? leak|information exposure|spoofing|denial of service|\bdos\b|read-only|disclose)\b/i;
+  const A = metrics.A || metrics.VA || "";
+  if (!C && !I && !A) return "Unknown";
   if (C === "H" && I === "H") return "Total";
-  if (totalKw.test(text)) return "Total";
-  if (partialKw.test(text)) return "Partial";
-  if (C === "H" || I === "H") return "Total";
-  if (C || I || metrics.A || metrics.VA) return "Partial";
-  return "Unknown";
+  return "Partial";
 }
 function deriveAutomatable(metrics) {
   const AV = metrics.AV || "", AC = metrics.AC || "";
   const PR = metrics.PR || metrics.Au || "", UI = metrics.UI || "";
   if (!AV && !AC && !PR && !UI) return "Unknown";
-  return (AV === "N" && (!AC || AC === "L") && (PR === "N" || PR === "NONE" || PR === "") && (UI === "N" || UI === "NONE" || UI === "")) ? "Yes" : "No";
+  return (AV === "N" && (!AC || AC === "L") &&
+          (PR === "N" || PR === "NONE" || PR === "") &&
+          (UI === "N" || UI === "NONE" || UI === "")) ? "Yes" : "No";
 }
 function deriveInternetExposed(metrics) {
   const AV = metrics.AV || "";
@@ -288,75 +253,64 @@ function deriveInternetExposed(metrics) {
   if (AV === "L" || AV === "P") return "No";
   return "Unknown";
 }
-function cisaDecision(exploitation, automatable, impact) {
-  const E = (exploitation || "none").toLowerCase();
-  const A = (automatable || "").toLowerCase() === "yes" ? "yes" : "no";
-  const T = (impact || "").toLowerCase() === "total" ? "total" : "partial";
-  const M = "low";
-  const table = {
-    "none|no|partial|low": "Track",
-    "none|no|total|low": "Track",
-    "none|yes|partial|low": "Track",
-    "none|yes|total|low": "Track",
-    "poc|no|partial|low": "Track",
-    "poc|no|total|low": "Track",
-    "poc|yes|partial|low": "Track",
-    "poc|yes|total|low": "Track*",
-    "active|no|partial|low": "Track",
-    "active|no|total|low": "Attend",
-    "active|yes|partial|low": "Attend",
-    "active|yes|total|low": "Attend"
-  };
-  return table[`${E}|${A}|${T}|${M}`] || "Track";
+function parseExploitStatus(v) {
+  const blobs = [];
+  (v.Threats || []).forEach(t => {
+    const desc = String(t.Description?.Value || t.Description || "");
+    if (t.Type === 1 || t.Type === "1" || /Publicly Disclosed:/i.test(desc) || /Exploited:/i.test(desc)) blobs.push(desc);
+  });
+  (v.Notes || []).forEach(n => blobs.push(String(n.Value || "")));
+  const raw = blobs.join("; ");
+  const kv = {};
+  raw.split(/[;\n]/).forEach(part => {
+    const i = part.indexOf(":");
+    if (i > 0) kv[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim().toLowerCase();
+  });
+  if (kv.exploited === "yes" || /exploitation detected/i.test(raw)) return "active";
+  if (kv["publicly disclosed"] === "yes") return "poc";
+  if (/\b(exploited in the wild|zero-?day|in[- ]the[- ]wild)\b/i.test(raw)) return "active";
+  return "none";
 }
-function deriveSSVC(expl, impact, automatable) {
-  const decision = cisaDecision(expl, automatable, impact);
-  const t = impact === "Total" ? "total" : impact === "Partial" ? "partial" : "?";
-  const a = automatable === "Yes" ? "yes" : automatable === "No" ? "no" : "?";
-  return `${decision} | E:${expl} / A:${a} / T:${t} / M:low`;
+function val(x) {
+  if (x == null) return "";
+  if (typeof x === "string" || typeof x === "number") return String(x);
+  if (Array.isArray(x)) return x.map(val).filter(Boolean).join(", ");
+  if (typeof x === "object") {
+    if (x.Value != null) return String(x.Value);
+    if (x.Title != null && x.Value == null) return val(x.Title);
+  }
+  return "";
 }
 function parseCVRF(json) {
   const vulns = json.Vulnerability || json.Document?.Vulnerability || [];
   return vulns.map(v => {
     const cve = Array.isArray(v.CVE) ? v.CVE[0] : (v.CVE || "");
-    const desc = v.Title?.Value || v.Title || "";
     const cv = pickCVSS(v.CVSSScoreSets || []);
-    const text = collectText(v);
-    const impact = deriveImpact(cv.metrics, text);
-    const automatable = deriveAutomatable(cv.metrics);
-    const expl = parseExploitStatus(v);
     return {
       "CVE-ID": cve,
-      "Description": desc,
-      "SSVC": deriveSSVC(expl, impact, automatable),
-      "Exploitation": expl,
+      "Description": val(v.Title),
+      "CVSS Vector": cv.vector || "",
       "CVSS": cv.base || "",
       "Severity": severity(cv.base),
-      "Impact": impact,
-      "Automatable": automatable,
+      "Impact": deriveImpact(cv.metrics),
+      "Automatable": deriveAutomatable(cv.metrics),
+      "Exploitation": parseExploitStatus(v),
       "Internet Exposed": deriveInternetExposed(cv.metrics),
-      "Forensic Triage Required": "Unknown",
-      _ssvcDecision: cisaDecision(expl, automatable, impact)
+      _metrics: cv.metrics,
+      _raw: v
     };
   });
 }
 function mergeEnrichment(base, recs) {
   const map = new Map();
-  for (const r of recs) {
-    const cve = r["CVE-ID"];
-    if (!cve) continue;
-    map.set(cve, r);
-  }
+  for (const r of recs) if (r["CVE-ID"]) map.set(r["CVE-ID"], r);
   base.forEach(b => {
     const m = map.get(b["CVE-ID"]);
     if (!m) return;
     if (m["Internet Exposed"]) b["Internet Exposed"] = m["Internet Exposed"];
-    if (m["Forensic Triage Required"]) b["Forensic Triage Required"] = m["Forensic Triage Required"];
     if (m.Exploitation) {
       const e = String(m.Exploitation).toLowerCase();
       b.Exploitation = e === "yes" || e === "active" ? "active" : e === "poc" || e === "public" ? "poc" : e;
-      b._ssvcDecision = cisaDecision(b.Exploitation, b.Automatable, b.Impact);
-      b.SSVC = deriveSSVC(b.Exploitation, b.Impact, b.Automatable);
     }
   });
   return base;
@@ -375,15 +329,13 @@ function buildHeader() {
 function applyFilters() {
   const q = $("#q").value.toLowerCase();
   const sev = $("#sev").value, imp = $("#imp").value, auto = $("#auto").value;
-  const expl = $("#expl").value, ie = $("#iex").value, tri = $("#tri").value, ssvc = $("#ssvc").value;
+  const expl = $("#expl").value, ie = $("#iex").value;
   filtered = rows.filter(r => {
     if (sev && r.Severity !== sev) return false;
     if (imp && r.Impact !== imp) return false;
     if (auto && r.Automatable !== auto) return false;
     if (expl && r.Exploitation !== expl) return false;
     if (ie && r["Internet Exposed"] !== ie) return false;
-    if (tri && r["Forensic Triage Required"] !== tri) return false;
-    if (ssvc && r._ssvcDecision !== ssvc) return false;
     if (q) {
       const hay = COLS.map(c => (r[c] || "").toLowerCase()).join("\u0000");
       if (!hay.includes(q)) return false;
@@ -391,6 +343,61 @@ function applyFilters() {
     return true;
   });
   render();
+}
+function metricLabel(k, v) {
+  const names = {
+    AV:"Attack Vector", AC:"Attack Complexity", PR:"Privileges Required",
+    UI:"User Interaction", S:"Scope", C:"Confidentiality", I:"Integrity", A:"Availability",
+    E:"Exploit Code Maturity", RL:"Remediation Level", RC:"Report Confidence"
+  };
+  const maps = {
+    AV:{N:"Network",A:"Adjacent",L:"Local",P:"Physical"},
+    AC:{L:"Low",H:"High"},
+    PR:{N:"None",L:"Low",H:"High"},
+    UI:{N:"None",R:"Required"},
+    S:{U:"Unchanged",C:"Changed"},
+    C:{H:"High",L:"Low",N:"None"},
+    I:{H:"High",L:"Low",N:"None"},
+    A:{H:"High",L:"Low",N:"None"}
+  };
+  const pretty = (maps[k] && maps[k][v]) || v;
+  return `${names[k] || k}: ${pretty}`;
+}
+function detailHtml(r) {
+  const v = r._raw || {};
+  const notes = (v.Notes || []).map(n => {
+    const t = val(n.Title) || n.Type || "Note";
+    return `<div><b>${escHtml(t)}</b><div>${escHtml(val(n))}</div></div>`;
+  }).join("");
+  const threats = (v.Threats || []).map(t =>
+    `<div><b>Threat ${escHtml(String(t.Type ?? ""))}</b><div>${escHtml(val(t.Description) || JSON.stringify(t))}</div></div>`
+  ).join("");
+  const rems = (v.Remediations || []).map(t =>
+    `<div>${escHtml(val(t.Description) || t.URL || JSON.stringify(t))}</div>`
+  ).join("");
+  const products = [...new Set((v.ProductStatuses || []).flatMap(p => p.ProductID || []))];
+  const m = r._metrics || {};
+  const metricBits = Object.keys(m).filter(Boolean).map(k => metricLabel(k, m[k])).join(" · ");
+  const cwe = Array.isArray(v.CWE) ? v.CWE : (v.CWE ? [v.CWE] : []);
+  return `
+    <div class="detail-grid">
+      <b>CVE</b><div><a href="https://msrc.microsoft.com/update-guide/vulnerability/${encodeURIComponent(r["CVE-ID"])}" target="_blank" rel="noopener">${escHtml(r["CVE-ID"])}</a>
+        · <a href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(r["CVE-ID"])}" target="_blank" rel="noopener">NVD</a></div>
+      <b>Title</b><div>${escHtml(r.Description)}</div>
+      <b>CVSS</b><div>${escHtml(r.CVSS)} — <span class="vector">${escHtml(r["CVSS Vector"])}</span></div>
+      <b>Metrics</b><div>${escHtml(metricBits || "Not provided")}</div>
+      <b>Impact / Auto / Expl</b><div>${escHtml(r.Impact)} · Automatable ${escHtml(r.Automatable)} · Exploitation ${escHtml(r.Exploitation)} · Internet ${escHtml(r["Internet Exposed"])}</div>
+      <b>CWE</b><div>${escHtml(cwe.map(w => (w.ID ? w.ID + " " : "") + val(w)).join("; ") || "—")}</div>
+      <b>Products</b><div>${escHtml(products.join(", ") || "—")}</div>
+    </div>
+    ${notes ? `<h3>Notes</h3>${notes}` : ""}
+    ${threats ? `<h3>Threats</h3>${threats}` : ""}
+    ${rems ? `<h3>Remediations</h3>${rems}` : ""}
+    <h3>Raw vulnerability object</h3>
+    <pre>${escHtml(JSON.stringify(v, null, 2))}</pre>`;
+}
+function escHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
 function render() {
   filtered.sort((x, y) => {
@@ -400,24 +407,40 @@ function render() {
   $body.innerHTML = "";
   filtered.forEach(r => {
     const tr = document.createElement("tr");
+    tr.className = "main-row" + (openCve === r["CVE-ID"] ? " open" : "");
+    tr.onclick = () => {
+      openCve = openCve === r["CVE-ID"] ? null : r["CVE-ID"];
+      render();
+    };
     COLS.forEach(c => {
       const td = document.createElement("td");
-      const val = r[c] || "";
-      if (c === "SSVC") {
+      const valx = r[c] || "";
+      if (c === "CVE-ID") {
+        const a = document.createElement("span");
+        a.className = "cve-link";
+        a.textContent = valx;
+        td.appendChild(a);
+      } else if (c === "CVSS Vector") {
+        td.className = "vector";
+        td.textContent = valx;
+      } else if (["Severity","Impact","Automatable","Internet Exposed","Exploitation"].includes(c) && valx) {
         const b = document.createElement("span");
-        b.className = "badge " + (r._ssvcDecision === "Track*" ? "ATTEND" : (r._ssvcDecision || "").toUpperCase());
-        b.textContent = r._ssvcDecision || "";
+        b.className = "badge " + String(valx).toUpperCase();
+        b.textContent = valx;
         td.appendChild(b);
-        td.appendChild(document.createTextNode("  " + val.replace(/^[^|]+\|\s*/, "")));
-      } else if (["Severity","Impact","Automatable","Internet Exposed","Forensic Triage Required","Exploitation"].includes(c) && val) {
-        const b = document.createElement("span");
-        b.className = "badge " + String(val).toUpperCase();
-        b.textContent = val;
-        td.appendChild(b);
-      } else td.textContent = val;
+      } else td.textContent = valx;
       tr.appendChild(td);
     });
     $body.appendChild(tr);
+    if (openCve === r["CVE-ID"]) {
+      const dr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = COLS.length;
+      td.className = "detail";
+      td.innerHTML = detailHtml(r);
+      dr.appendChild(td);
+      $body.appendChild(dr);
+    }
   });
   $("#stats").textContent = `Showing ${filtered.length} of ${rows.length}`;
   const dis = filtered.length === 0;
@@ -433,7 +456,10 @@ function dl(name, blob) {
   URL.revokeObjectURL(url);
 }
 function dlCSV(data) { dl("patch_pre_release.csv", new Blob([toCSV(data)], { type: "text/csv" })); }
-function dlJSON(data) { dl("patch_pre_release.json", new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })); }
+function dlJSON(data) {
+  const clean = data.map(r => { const o = {}; COLS.forEach(c => o[c] = r[c]); return o; });
+  dl("patch_pre_release.json", new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }));
+}
 function dlXLS(data) {
   let html = "<table><tr>" + COLS.map(c => `<th>${c}</th>`).join("") + "</tr>";
   data.forEach(r => { html += "<tr>" + COLS.map(c => `<td>${r[c] || ""}</td>`).join("") + "</tr>"; });
@@ -448,11 +474,12 @@ async function loadFiles() {
   rows = parseCVRF(json);
   const e = $("#enrich").files[0];
   if (e) rows = mergeEnrichment(rows, parseCSV(await readText(e)));
+  openCve = null;
   buildHeader();
   filtered = rows.slice();
   render();
   const n = rows.filter(r => r.Exploitation === "active").length;
-  $("#msg").textContent = `Exploitation from MSRC Threat Type 1 (Exploited:Yes → active). ${n} marked exploited. Mission/WB=Low.`;
+  $("#msg").textContent = `Loaded ${rows.length} CVEs. ${n} exploited. Click a CVE to expand details.`;
 }
 </script>
 </body>
