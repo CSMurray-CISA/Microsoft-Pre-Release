@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Microsoft Patch Tuesday Pre-Release Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/openpgp@5.11.2/dist/openpgp.min.js"></script>
 <style>
   :root {
     color-scheme: light dark;
@@ -64,16 +63,8 @@
 <div class="grid">
   <div class="inputs">
     <label>
-      <strong>CVRF JSON or PGP message</strong><br/>
-      <input id="cvrf" type="file" accept=".json,.pgp,.gpg,.asc" />
-    </label>
-    <label>
-      <strong>Your private key</strong> <span class="muted">(.asc / .key — stays in this tab)</span><br/>
-      <input id="privKey" type="file" accept=".asc,.key,.pgp,.gpg,.txt" />
-    </label>
-    <label>
-      <strong>Private key passphrase</strong> <span class="muted">(if the key is locked)</span><br/>
-      <input id="keyPass" type="password" autocomplete="off" placeholder="Key passphrase" />
+      <strong>CVRF JSON</strong><br/>
+      <input id="cvrf" type="file" accept=".json" />
     </label>
     <label>
       <strong>Enrichment CSV (optional)</strong><br/>
@@ -174,103 +165,21 @@ const $head = $("#grid thead"), $body = $("#grid tbody");
 
 $("#loadBtn").onclick = loadFiles;
 ["#q","#sev","#imp","#auto","#expl","#iex","#tri","#ssvc"].forEach(id => {
-  const el = $(id); el.oninput = el.onchange = applyFilters;
+  const el = $(id);
+  el.oninput = el.onchange = applyFilters;
 });
 $("#exportCsvBtn").onclick = () => dlCSV(filtered);
 $("#exportJsonBtn").onclick = () => dlJSON(filtered);
 $("#exportXlsBtn").onclick = () => dlXLS(filtered);
 $("#copyBtn").onclick = () => navigator.clipboard.writeText(toCSV(filtered));
 
-function readAsText(f) {
+function readText(f) {
   return new Promise(res => {
     if (!f) return res(null);
     const r = new FileReader();
     r.onload = () => res(r.result);
     r.readAsText(f);
   });
-}
-function readAsBuffer(f) {
-  return new Promise(res => {
-    const r = new FileReader();
-    r.onload = () => res(r.result);
-    r.readAsArrayBuffer(f);
-  });
-}
-function looksArmored(s) {
-  return /-----BEGIN PGP (MESSAGE|SIGNED MESSAGE|PRIVATE KEY BLOCK|PUBLIC KEY BLOCK)-----/.test(s || "");
-}
-function looksJson(s) {
-  const t = String(s || "").replace(/^\uFEFF/, "").trim();
-  return t.startsWith("{") || t.startsWith("[");
-}
-function extractJsonText(s) {
-  const t = String(s || "").replace(/^\uFEFF/, "");
-  const startObj = t.indexOf("{");
-  const startArr = t.indexOf("[");
-  let start = -1;
-  if (startObj >= 0 && startArr >= 0) start = Math.min(startObj, startArr);
-  else start = Math.max(startObj, startArr);
-  if (start < 0) throw new Error("Decrypted payload did not contain JSON.");
-  const slice = t.slice(start);
-  JSON.parse(slice);
-  return slice;
-}
-async function readPgpMessage(file) {
-  const text = await readAsText(file);
-  if (looksArmored(text) && /BEGIN PGP MESSAGE/.test(text)) {
-    return openpgp.readMessage({ armoredMessage: text });
-  }
-  return openpgp.readMessage({ binaryMessage: new Uint8Array(await readAsBuffer(file)) });
-}
-async function loadPrivateKey(file, passphrase) {
-  if (!file) throw new Error("Select your private key file.");
-  const text = await readAsText(file);
-  let key;
-  try {
-    if (looksArmored(text) && /PRIVATE KEY BLOCK/.test(text)) {
-      key = await openpgp.readPrivateKey({ armoredKey: text });
-    } else {
-      key = await openpgp.readPrivateKey({ binaryKey: new Uint8Array(await readAsBuffer(file)) });
-    }
-  } catch (e) {
-    throw new Error("Could not read private key. Use an ASCII-armored .asc secret key, not the public key. (" + e.message + ")");
-  }
-  if (!key.isDecrypted()) {
-    if (!passphrase) throw new Error("This private key is locked. Enter the key passphrase.");
-    try {
-      key = await openpgp.decryptKey({ privateKey: key, passphrase });
-    } catch (e) {
-      throw new Error("Wrong private-key passphrase. (" + e.message + ")");
-    }
-  }
-  return key;
-}
-async function decryptWithKey(file, keyFile, keyPass) {
-  if (!window.openpgp) throw new Error("OpenPGP.js failed to load.");
-  const [message, privateKey] = await Promise.all([
-    readPgpMessage(file),
-    loadPrivateKey(keyFile, keyPass)
-  ]);
-  try {
-    const { data } = await openpgp.decrypt({
-      message,
-      decryptionKeys: privateKey,
-      format: "utf8",
-      config: { allowUnauthenticatedMessages: true }
-    });
-    return data;
-  } catch (e) {
-    throw new Error("Decrypt failed. This message may be encrypted to a different key. (" + e.message + ")");
-  }
-}
-async function loadCvrfJson(file) {
-  const name = (file.name || "").toLowerCase();
-  const text = await readAsText(file);
-  if (looksJson(text) && !/BEGIN PGP MESSAGE/.test(text) && !/\.(pgp|gpg|asc)$/.test(name)) {
-    return JSON.parse(text);
-  }
-  const plain = await decryptWithKey(file, $("#privKey").files[0], $("#keyPass").value);
-  return JSON.parse(extractJsonText(plain));
 }
 function parseCSV(txt) {
   if (!txt) return [];
@@ -330,10 +239,14 @@ function collectText(v) {
   return bits.join(" ").toLowerCase();
 }
 function parseExploitStatus(v) {
+  const threats = v.Threats || [];
   const blobs = [];
-  (v.Threats || []).forEach(t => {
+  threats.forEach(t => {
+    const typ = t.Type;
     const desc = String(t.Description?.Value || t.Description || "");
-    if (t.Type === 1 || t.Type === "1" || /Publicly Disclosed:/i.test(desc) || /Exploited:/i.test(desc)) blobs.push(desc);
+    if (typ === 1 || typ === "1" || /exploit/i.test(String(typ)) || /Publicly Disclosed:/i.test(desc) || /Exploited:/i.test(desc)) {
+      blobs.push(desc);
+    }
   });
   (v.Notes || []).forEach(n => blobs.push(String(n.Value || "")));
   const raw = blobs.join("; ");
@@ -342,16 +255,19 @@ function parseExploitStatus(v) {
     const i = part.indexOf(":");
     if (i > 0) kv[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim().toLowerCase();
   });
-  if (kv.exploited === "yes" || /exploitation detected/i.test(raw)) return "active";
-  if (kv["publicly disclosed"] === "yes") return "poc";
-  if (/\b(exploited in the wild|zero-?day|in[- ]the[- ]wild)\b/i.test(raw)) return "active";
+  const exploited = kv.exploited === "yes" || /exploitation detected/i.test(raw);
+  const disclosed = kv["publicly disclosed"] === "yes";
+  if (exploited) return "active";
+  if (disclosed) return "poc";
+  if (/\b(exploited in the wild|zero-?day|in[- ]the[- ]wild|exploitation detected)\b/i.test(raw)) return "active";
+  if (/\b(proof[- ]of[- ]concept|\bpoc\b|publicly disclosed)\b/i.test(raw) && /:\s*yes/i.test(raw)) return "poc";
   return "none";
 }
 function deriveImpact(metrics, text) {
   const C = metrics.C || metrics.VC || "";
   const I = metrics.I || metrics.VI || "";
-  const totalKw = /\b(remote code execution|\brce\b|code execution|arbitrary code|command injection|privilege escalation|elevation of privilege|\beop\b|elevate privileges|take over|takeover)\b/i;
-  const partialKw = /\b(information disclosure|info(rmation)? leak|information exposure|spoofing|denial of service|\bdos\b)\b/i;
+  const totalKw = /\b(remote code execution|\brce\b|code execution|arbitrary code|command injection|command execution|privilege escalation|elevation of privilege|\beop\b|elevate privileges|take over|takeover|install (and )?run arbitrary|system compromise)\b/i;
+  const partialKw = /\b(information disclosure|info(rmation)? leak|information exposure|spoofing|denial of service|\bdos\b|read-only|disclose)\b/i;
   if (C === "H" && I === "H") return "Total";
   if (totalKw.test(text)) return "Total";
   if (partialKw.test(text)) return "Partial";
@@ -376,15 +292,22 @@ function cisaDecision(exploitation, automatable, impact) {
   const E = (exploitation || "none").toLowerCase();
   const A = (automatable || "").toLowerCase() === "yes" ? "yes" : "no";
   const T = (impact || "").toLowerCase() === "total" ? "total" : "partial";
+  const M = "low";
   const table = {
-    "none|no|partial|low": "Track", "none|no|total|low": "Track",
-    "none|yes|partial|low": "Track", "none|yes|total|low": "Track",
-    "poc|no|partial|low": "Track", "poc|no|total|low": "Track",
-    "poc|yes|partial|low": "Track", "poc|yes|total|low": "Track*",
-    "active|no|partial|low": "Track", "active|no|total|low": "Attend",
-    "active|yes|partial|low": "Attend", "active|yes|total|low": "Attend"
+    "none|no|partial|low": "Track",
+    "none|no|total|low": "Track",
+    "none|yes|partial|low": "Track",
+    "none|yes|total|low": "Track",
+    "poc|no|partial|low": "Track",
+    "poc|no|total|low": "Track",
+    "poc|yes|partial|low": "Track",
+    "poc|yes|total|low": "Track*",
+    "active|no|partial|low": "Track",
+    "active|no|total|low": "Attend",
+    "active|yes|partial|low": "Attend",
+    "active|yes|total|low": "Attend"
   };
-  return table[`${E}|${A}|${T}|low`] || "Track";
+  return table[`${E}|${A}|${T}|${M}`] || "Track";
 }
 function deriveSSVC(expl, impact, automatable) {
   const decision = cisaDecision(expl, automatable, impact);
@@ -396,6 +319,7 @@ function parseCVRF(json) {
   const vulns = json.Vulnerability || json.Document?.Vulnerability || [];
   return vulns.map(v => {
     const cve = Array.isArray(v.CVE) ? v.CVE[0] : (v.CVE || "");
+    const desc = v.Title?.Value || v.Title || "";
     const cv = pickCVSS(v.CVSSScoreSets || []);
     const text = collectText(v);
     const impact = deriveImpact(cv.metrics, text);
@@ -403,7 +327,7 @@ function parseCVRF(json) {
     const expl = parseExploitStatus(v);
     return {
       "CVE-ID": cve,
-      "Description": v.Title?.Value || v.Title || "",
+      "Description": desc,
       "SSVC": deriveSSVC(expl, impact, automatable),
       "Exploitation": expl,
       "CVSS": cv.base || "",
@@ -418,7 +342,11 @@ function parseCVRF(json) {
 }
 function mergeEnrichment(base, recs) {
   const map = new Map();
-  for (const r of recs) if (r["CVE-ID"]) map.set(r["CVE-ID"], r);
+  for (const r of recs) {
+    const cve = r["CVE-ID"];
+    if (!cve) continue;
+    map.set(cve, r);
+  }
   base.forEach(b => {
     const m = map.get(b["CVE-ID"]);
     if (!m) return;
@@ -513,26 +441,18 @@ function dlXLS(data) {
 }
 async function loadFiles() {
   const j = $("#cvrf").files[0];
-  if (!j) return alert("Select a CVRF JSON or PGP file");
-  $("#msg").textContent = "Decrypting / loading…";
-  $("#loadBtn").disabled = true;
-  try {
-    const json = await loadCvrfJson(j);
-    rows = parseCVRF(json);
-    const e = $("#enrich").files[0];
-    if (e) rows = mergeEnrichment(rows, parseCSV(await readAsText(e)));
-    buildHeader();
-    filtered = rows.slice();
-    render();
-    const n = rows.filter(r => r.Exploitation === "active").length;
-    $("#msg").textContent = `Loaded ${rows.length} CVEs. ${n} exploited. Key used only in this tab.`;
-  } catch (err) {
-    console.error(err);
-    alert(err.message || String(err));
-    $("#msg").textContent = err.message || String(err);
-  } finally {
-    $("#loadBtn").disabled = false;
-  }
+  if (!j) return alert("Select CVRF JSON");
+  let json;
+  try { json = JSON.parse(await readText(j)); }
+  catch { return alert("Invalid JSON"); }
+  rows = parseCVRF(json);
+  const e = $("#enrich").files[0];
+  if (e) rows = mergeEnrichment(rows, parseCSV(await readText(e)));
+  buildHeader();
+  filtered = rows.slice();
+  render();
+  const n = rows.filter(r => r.Exploitation === "active").length;
+  $("#msg").textContent = `Exploitation from MSRC Threat Type 1 (Exploited:Yes → active). ${n} marked exploited. Mission/WB=Low.`;
 }
 </script>
 </body>
