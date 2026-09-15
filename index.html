@@ -75,13 +75,6 @@
       <strong>CVRF JSON</strong><br/>
       <input id="cvrf" type="file" accept=".json" />
     </label>
-    <label>
-      <strong>Enrichment CSV (optional)</strong><br/>
-      <input id="enrich" type="file" accept=".csv" />
-      <div class="muted" style="margin-top:4px">
-        Columns: CVE-ID, Internet Exposed, Exploitation
-      </div>
-    </label>
   </div>
   <div class="controls">
     <button id="loadBtn">Load</button>
@@ -472,8 +465,6 @@ async function loadFiles() {
   try { json = JSON.parse(await readText(j)); }
   catch { return alert("Invalid JSON"); }
   rows = parseCVRF(json);
-  const e = $("#enrich").files[0];
-  if (e) rows = mergeEnrichment(rows, parseCSV(await readText(e)));
   openCve = null;
   buildHeader();
   filtered = rows.slice();
